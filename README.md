@@ -105,6 +105,21 @@ firebase login
 
 `admins` コレクションはセキュリティルールでアプリからの読み書きをすべて禁止しているため、コンソールからしか変更できません。
 
+### 6. App Check を有効にする (推奨)
+
+[App Check](https://firebase.google.com/docs/app-check) を有効にすると、このサイト以外から Firebase を使うリクエストを拒否できます。
+
+1. [Google Cloud Console の reCAPTCHA](https://console.cloud.google.com/security/recaptcha) で、ウェブサイト用のキーを作成する
+   - ドメインに `<project-id>.web.app` と `<project-id>.firebaseapp.com` を追加する
+   - 「チェックボックスによる確認」は使わない (スコアベースのキー)
+2. Firebase コンソールの **App Check** でウェブアプリを登録し、プロバイダに **reCAPTCHA Enterprise** を選んでサイトキーを入力する
+3. `code.html` の `RECAPTCHA_SITE_KEY` にサイトキーを設定してデプロイする
+4. App Check の画面で、Cloud Firestore と Authentication の「確認済みリクエスト」の割合が十分高くなったのを確認してから、**適用 (Enforce)** を有効にする
+
+サイトキーは公開される値で、秘密情報ではありません。
+適用を先に有効にすると、古い版のページを開いている利用者が使えなくなるので、必ず手順 4 の順で進めてください。
+ローカル (`localhost`) で動かす場合はデバッグトークンを使います。ブラウザのコンソールに表示されるトークンを、App Check の「デバッグトークンを管理」に登録してください。
+
 ## セキュリティについて
 
 - **API キーが HTML に含まれるのは正常**です。Firebase のウェブ用 API キーはプロジェクトの識別子で、秘密情報ではありません。
@@ -117,7 +132,7 @@ firebase login
 - **画面側のみの制御** (ルールでは強制していないもの)
   - いいね数の非公開 (データ自体は閲覧権限のある人が読めます)
   - 1 人あたりの投票数の上限
-- ログインすれば誰でもグループ作成や投稿ができます。広く公開する場合は [App Check](https://firebase.google.com/docs/app-check) の導入や投稿数の制限を検討してください。
+- ログインすれば誰でもグループ作成や投稿ができます。広く公開する場合は App Check (セットアップ手順 6) の適用や投稿数の制限を検討してください。
 - 画像は Firestore のドキュメントに直接保存しているため、無料枠 (1 GiB) を目安に運用してください。
 
 ## 既知の制約

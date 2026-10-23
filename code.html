@@ -323,6 +323,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken as getAppCheckToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { initializeFirestore, collection, addDoc, onSnapshot, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, limit, arrayUnion, writeBatch, getCountFromServer, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
@@ -378,6 +379,15 @@
             try { sessionStorage.setItem('__t', '1'); sessionStorage.removeItem('__t'); line('sessionStorage: OK'); } catch (e) { line('sessionStorage: NG ' + e.name); }
             line(`indexedDB: ${typeof indexedDB !== 'undefined' ? 'あり' : 'なし'}`);
             line(`auth init: ${authReady ? '完了' : '未完了 ← 認証の初期化が終わっていません'}`);
+            if (!appCheck) {
+                line('App Check: 未設定');
+            } else {
+                const t = Date.now();
+                try {
+                    const r = await Promise.race([getAppCheckToken(appCheck, false), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))]);
+                    line(`App Check: OK (${r && r.token ? 'トークン取得' : '空'}, ${Date.now() - t}ms)`);
+                } catch (e) { line(`App Check: NG ${e.code || ''} ${e.message} ← reCAPTCHA の設定を確認`); }
+            }
             line(`login: ${currentUser ? 'ログイン中 (' + (currentUser.email || '') + ')' : 'ゲスト'}`);
             line(`openGroups: ${openGroups.length}件  status: ${openStatus}`);
             const probe = async (label, url, opts = {}) => {
@@ -404,6 +414,22 @@
         };
 
         const app = initializeApp(firebaseConfig);
+
+        // ---------- App Check (このサイト以外からの Firebase 利用を拒否する) ----------
+        // reCAPTCHA Enterprise のサイトキー。空文字なら App Check を使わない (README 参照)
+        // サイトキーは公開前提の値で、秘密情報ではない
+        const RECAPTCHA_SITE_KEY = '';
+        let appCheck = null;
+        if (RECAPTCHA_SITE_KEY) {
+            // localhost で動かすときはデバッグトークンを使う (コンソールに表示されるトークンを Firebase に登録する)
+            if (['localhost', '127.0.0.1'].includes(location.hostname)) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+            try {
+                appCheck = initializeAppCheck(app, {
+                    provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+                    isTokenAutoRefreshEnabled: true
+                });
+            } catch (e) { console.error('App Check init', e); }
+        }
         // iPhone の Safari / Chrome では標準のストリーミング通信が応答しないことがあるため、
         // どの環境でも動くロングポーリング方式に固定する (接続診断で status: loading のまま止まる症状の対策)
         const db = initializeFirestore(app, { experimentalForceLongPolling: true });
