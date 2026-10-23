@@ -91,7 +91,4 @@ firebase login
 - ログインすれば誰でもグループ作成や投稿ができます。広く公開する場合は [App Check](https://firebase.google.com/docs/app-check) の導入や投稿数の制限を検討してください。
 - 画像は Firestore のドキュメントに直接保存しているため、無料枠 (1 GiB) を目安に運用してください。
 
-## 既知の制約
 
-- LINE・Instagram などのアプリ内ブラウザでは Google がログインを拒否します。アプリは外部ブラウザへの切り替えを案内します。
-- Tailwind CSS は CDN 版を使っているため、コンソールに本番利用の警告が表示されます。
