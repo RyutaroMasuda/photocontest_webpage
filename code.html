@@ -324,7 +324,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { initializeFirestore, collection, addDoc, onSnapshot, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, limit, arrayUnion, writeBatch, getCountFromServer } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeFirestore, collection, addDoc, onSnapshot, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, limit, arrayUnion, writeBatch, getCountFromServer, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCwIKpOOYGs_SV8vsNAp9x9o6PL9zwdhaM",
@@ -337,6 +337,19 @@
             measurementId: "G-2SWBWPWE0P"
         };
         const DEFAULT_AVATAR = 'https://placehold.co/100x100/e2e8f0/475569?text=U';
+        const BROKEN_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+
+        // ---------- 外部データを HTML 属性に入れる前の検査 (XSS 対策) ----------
+        // 画像: 自前で縮小した data URL か、https の URL だけを許可する
+        const SAFE_DATA_IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+        const SAFE_HTTPS_URL = /^https:\/\/[^\s"'<>`\\]+$/;
+        function safeImg(url, fallback = DEFAULT_AVATAR) {
+            const s = typeof url === 'string' ? url : '';
+            return escapeHTML(SAFE_DATA_IMG.test(s) || SAFE_HTTPS_URL.test(s) ? s : fallback);
+        }
+        // ドキュメント ID / 招待コード: 英数字と - _ だけ (onclick や href に埋め込むため)
+        const isSafeId = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id);
+        const isSafeCode = (c) => typeof c === 'string' && /^[A-Z0-9]{6}$/.test(c);
         const BUILD = '__BUILD__';
 
         // ---------- 予期しないエラーを画面に出す (スマホでの原因調査用) ----------
@@ -710,7 +723,7 @@
             }
             el.innerHTML = `
                 <button onclick="openNameModal(false)" title="表示名を変更" class="flex items-center gap-2 border border-slate-200 rounded-full pl-1 pr-3 py-1 hover:bg-slate-50">
-                    <img src="${avatarUrl()}" class="w-7 h-7 rounded-full bg-slate-100">
+                    <img src="${safeImg(avatarUrl())}" class="w-7 h-7 rounded-full bg-slate-100">
                     <span class="text-sm font-medium text-slate-700 max-w-[5.5rem] sm:max-w-[8rem] truncate">${escapeHTML(displayName())}</span>
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                 </button>
@@ -741,7 +754,7 @@
             unsubOpen = onSnapshot(query(collection(db, 'groups'), where('visibility', '==', 'open')), (snap) => {
                 clearTimeout(watchdog);
                 openStatus = 'ok';
-                openGroups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                openGroups = snap.docs.filter(d => isSafeId(d.id)).map(d => ({ id: d.id, ...d.data() }));
                 openGroups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 openGroups.forEach(ensureMembership);
                 renderHome();
@@ -764,7 +777,7 @@
                                 deleteDoc(doc(db, 'users', currentUser.uid, 'memberships', id)).catch(() => {});
                                 return null;
                             }
-                            return { id: g.id, ...g.data() };
+                            return isSafeId(g.id) ? { id: g.id, ...g.data() } : null;
                         } catch (e) { console.warn('group fetch', id, e.code); return null; }
                     }));
                     myGroups = results.filter(Boolean);
@@ -818,7 +831,7 @@
             let list = [];
             try {
                 const snap = await getDocs(query(collection(db, 'groups', gid, 'photos'), limit(12)));
-                list = snap.docs.map(d => d.data().image).filter(Boolean);
+                list = snap.docs.map(d => d.data().image).filter(s => typeof s === 'string' && SAFE_DATA_IMG.test(s));
                 for (let i = list.length - 1; i > 0; i--) {       // シャッフル
                     const j = Math.floor(Math.random() * (i + 1));
                     [list[i], list[j]] = [list[j], list[i]];
@@ -938,7 +951,7 @@
                     getDocs(collection(db, 'groups')),
                     getCountFromServer(collection(db, 'users'))
                 ]);
-                const groups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const groups = groupSnap.docs.filter(d => isSafeId(d.id)).map(d => ({ id: d.id, ...d.data() }));
                 groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 // 写真枚数は集計クエリで取得 (画像本体はダウンロードしない)
                 const counts = await Promise.all(groups.map(g =>
@@ -1187,7 +1200,7 @@
             if (unsubPhotos) unsubPhotos();
             photosDenied = false;
             unsubPhotos = onSnapshot(collection(db, 'groups', currentGroupId, 'photos'), (snap) => {
-                photos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                photos = snap.docs.filter(d => isSafeId(d.id)).map(d => ({ id: d.id, ...d.data() }));
                 photosDenied = false;
                 renderGroup();
             }, (e) => {
@@ -1240,7 +1253,7 @@
                 notice += `<div class="bg-white border border-slate-200 text-sm rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
                     <span class="text-slate-600">招待コード</span>
                     <span class="font-mono text-lg font-bold tracking-widest text-indigo-700 select-all">${escapeHTML(g.inviteCode)}</span>
-                    <button onclick="copyText('${escapeHTML(g.inviteCode)}', '招待コードをコピーしました')" class="text-xs border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50">コードをコピー</button>
+                    <button onclick="copyText('${isSafeCode(g.inviteCode) ? g.inviteCode : ''}', '招待コードをコピーしました')" class="text-xs border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50">コードをコピー</button>
                     <span class="text-xs text-slate-400">トップページの「招待コードで参加」にこのコードを入力すると参加できます。</span>
                     <button onclick="toggleInviteCode()" class="ml-auto text-xs text-slate-400 hover:text-slate-600">閉じる</button>
                 </div>`;
@@ -1344,14 +1357,14 @@
             return `
                 <div class="masonry-item bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 hover:-translate-y-1 transition-transform duration-300">
                     <div class="relative group">
-                        <img src="${photo.image}" alt="${escapeHTML(photo.title || '')}" class="w-full h-auto object-cover" loading="lazy">
+                        <img src="${safeImg(photo.image, BROKEN_IMAGE)}" alt="${escapeHTML(photo.title || '')}" class="w-full h-auto object-cover" loading="lazy">
                         <div class="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end">
                             <p class="text-white p-4 font-medium text-shadow truncate w-full">${escapeHTML(photo.title || '')}</p>
                         </div>
                     </div>
                     <div class="p-4 flex flex-col gap-3 bg-white">
                         <div class="flex items-center gap-2">
-                            <img src="${photo.uploaderPhoto || DEFAULT_AVATAR}" class="w-6 h-6 rounded-full border border-slate-200 bg-slate-100">
+                            <img src="${safeImg(photo.uploaderPhoto)}" class="w-6 h-6 rounded-full border border-slate-200 bg-slate-100">
                             <span class="text-xs text-slate-500 truncate flex-1">${escapeHTML(photo.uploaderName || 'ゲスト')}</span>
                             ${controls}
                         </div>
@@ -1457,7 +1470,7 @@
             photos.forEach(p => { postCount[p.uploaderId] = (postCount[p.uploaderId] || 0) + 1; });
             list.innerHTML = rows.length ? rows.map(r => `
                 <li class="px-6 py-3 flex items-center gap-3">
-                    <img src="${r.photoURL || DEFAULT_AVATAR}" class="w-10 h-10 rounded-full border border-slate-200 bg-slate-100 object-cover" onerror="this.src='${DEFAULT_AVATAR}'">
+                    <img src="${safeImg(r.photoURL)}" class="w-10 h-10 rounded-full border border-slate-200 bg-slate-100 object-cover" onerror="this.src='${DEFAULT_AVATAR}'">
                     <div class="min-w-0 flex-1">
                         <div class="text-sm font-medium text-slate-800 truncate">${escapeHTML(r.displayName || '名前未設定')}${currentUser && r.uid === currentUser.uid ? ' <span class="text-xs text-slate-400">(あなた)</span>' : ''}</div>
                         <div class="text-xs text-slate-400">${photosDenied ? '' : `投稿 ${postCount[r.uid] || 0} 枚`}</div>
@@ -1507,28 +1520,28 @@
                 showToast('参加するといいねできます'); return;
             }
             const docRef = doc(db, 'groups', currentGroup.id, 'photos', photoId);
+            const uid = currentUser.uid;
             try {
-                const docSnap = await getDoc(docRef);
-                if (!docSnap.exists()) return;
-                const data = docSnap.data();
-                let votedBy = data.votedBy || [];
-                let votes = data.votes || 0;
-                if (votedBy.includes(currentUser.uid)) {
-                    votedBy = votedBy.filter(id => id !== currentUser.uid);
-                    votes = Math.max(0, votes - 1);
-                } else {
-                    if (!selfVoteAllowed(currentGroup) && data.uploaderId === currentUser.uid) {
-                        showToast('このグループでは自分の写真にはいいねできません');
-                        return;
+                // トランザクション: 読んだ時点から他の人の票が変わっていたら自動で読み直して再実行する
+                const blocked = await runTransaction(db, async (tx) => {
+                    const docSnap = await tx.get(docRef);
+                    if (!docSnap.exists()) return 'gone';
+                    const data = docSnap.data();
+                    const before = Array.isArray(data.votedBy) ? data.votedBy : [];
+                    let votedBy;
+                    if (before.includes(uid)) {
+                        votedBy = before.filter(id => id !== uid);          // ルール側の removeAll と同じ結果
+                    } else {
+                        if (!selfVoteAllowed(currentGroup) && data.uploaderId === uid) return 'self';
+                        if (hasVoteLimit(currentGroup) && myVoteCount() >= currentGroup.voteLimit) return 'limit';
+                        votedBy = [...before, uid];                          // ルール側の concat と同じ結果
                     }
-                    if (hasVoteLimit(currentGroup) && myVoteCount() >= currentGroup.voteLimit) {
-                        showToast(`投票できるのは 1人 ${currentGroup.voteLimit} 票までです。他の写真のいいねを外すと入れ直せます。`);
-                        return;
-                    }
-                    votedBy.push(currentUser.uid);
-                    votes += 1;
-                }
-                await updateDoc(docRef, { votes, votedBy });
+                    // 票数は常に「投票した人数」と一致させる (ルールで強制)
+                    tx.update(docRef, { votedBy, votes: votedBy.length });
+                    return null;
+                });
+                if (blocked === 'self') showToast('このグループでは自分の写真にはいいねできません');
+                if (blocked === 'limit') showToast(`投票できるのは 1人 ${currentGroup.voteLimit} 票までです。他の写真のいいねを外すと入れ直せます。`);
             } catch (error) {
                 console.error("Error updating vote:", error);
                 showToast("投票の処理に失敗しました。");

@@ -29,12 +29,44 @@ service cloud.firestore {
       return !('allowSelfVote' in group) || group.allowSelfVote != false
              || photo.uploaderId != request.auth.uid;
     }
+    // ---- XSS 対策: HTML 属性に埋め込まれる値の形式を固定する ----
+    // ドキュメント ID (onclick や href に入る)
+    function safeId(id) {
+      return id is string && id.matches('^[A-Za-z0-9_-]{1,64}$');
+    }
+    // 投稿画像: アプリが縮小して作る data URL だけを許可 (引用符や空白は base64 に現れない)
+    function safeImageData(s) {
+      return s is string && s.size() <= 1000000
+             && s.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$');
+    }
+    // アイコン URL: https で、引用符・空白・< > などを含まないものだけ
+    function safeHttpsUrl(s) {
+      return s is string && s.size() <= 2048
+             && s.matches('^https://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+$');
+    }
+
+    // ---- いいねの改ざん防止 ----
+    // 自分の uid を 1 つ足すか 1 つ外すだけ。票数は常に投票者数と一致させる
+    function validVote(group, photo, next) {
+      let uid = request.auth.uid;
+      let before = photo.get('votedBy', []);
+      let after = next.votedBy;
+      return before is list && after is list
+             && next.votes == after.size()
+             && (
+               // いいねを付ける
+               (!(uid in before) && after == before.concat([uid]) && selfVoteAllowed(group, photo))
+               // いいねを外す (自分の写真でも外すことは可能)
+               || (uid in before && after == before.removeAll([uid]))
+             );
+    }
+
     function validGroupFields(d) {
       return d.name is string && d.name.size() > 0 && d.name.size() <= 50
              && d.visibility in ['open', 'private']
              && (!('description' in d) || (d.description is string && d.description.size() <= 200))
              && (!('deadline' in d) || d.deadline == null || d.deadline is number)
-             && (!('inviteCode' in d) || (d.inviteCode is string && d.inviteCode.size() == 6))
+             && (!('inviteCode' in d) || (d.inviteCode is string && d.inviteCode.matches('^[A-Z0-9]{6}$')))
              && (!('showVotes' in d) || d.showVotes is bool)
              && (!('voteLimit' in d) || d.voteLimit == null || (d.voteLimit is int && d.voteLimit >= 1 && d.voteLimit <= 999))
              && (!('allowSelfVote' in d) || d.allowSelfVote is bool)
@@ -47,7 +79,8 @@ service cloud.firestore {
       allow write: if signedIn() && request.auth.uid == userId
                    && request.resource.data.displayName is string
                    && request.resource.data.displayName.size() > 0
-                   && request.resource.data.displayName.size() <= 30;
+                   && request.resource.data.displayName.size() <= 30
+                   && (!('photoURL' in request.resource.data) || safeHttpsUrl(request.resource.data.photoURL));
 
       // 自分が参加しているグループの記録 (本人のみ読み書き可)
       match /memberships/{groupId} {
@@ -61,8 +94,8 @@ service cloud.firestore {
       allow list: if false;
       // グループ本体 (同じバッチ内の書き込み後の状態) の管理者が、そのグループの inviteCode と一致するコードだけ作成できる
       allow create: if signedIn()
-                    && request.resource.data.groupId is string
-                    && code.size() == 6
+                    && safeId(request.resource.data.groupId)
+                    && code.matches('^[A-Z0-9]{6}$')
                     && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.ownerId == request.auth.uid
                     && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.inviteCode == code;
       allow update: if false;
@@ -77,6 +110,7 @@ service cloud.firestore {
       allow list: if resource.data.visibility == 'open' || isDev();
 
       allow create: if signedIn()
+                    && safeId(groupId)
                     && request.resource.data.ownerId == request.auth.uid
                     && request.resource.data.members == [request.auth.uid]
                     && validGroupFields(request.resource.data);
@@ -88,6 +122,7 @@ service cloud.firestore {
                             .hasOnly(['name', 'description', 'visibility', 'deadline', 'showVotes', 'voteLimit', 'allowSelfVote', 'votingOpen', 'ownerName', 'inviteCode'])
                        && validGroupFields(request.resource.data))
                       || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+                          && !(request.auth.uid in resource.data.members)
                           && request.resource.data.members == resource.data.members.concat([request.auth.uid]))
                     );
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
@@ -98,13 +133,17 @@ service cloud.firestore {
 
         // 投稿: 閲覧権限があり、締め切り前で、自分の uid が入っていること
         allow create: if signedIn()
+                      && safeId(photoId)
                       && canSeeGroup(groupData(groupId))
                       && beforeDeadline(groupData(groupId))
                       && request.resource.data.uploaderId == request.auth.uid
                       && request.resource.data.title is string
                       && request.resource.data.title.size() > 0
                       && request.resource.data.title.size() <= 100
-                      && request.resource.data.image is string;
+                      && safeImageData(request.resource.data.image)
+                      && (!('uploaderPhoto' in request.resource.data) || safeHttpsUrl(request.resource.data.uploaderPhoto))
+                      && request.resource.data.votes == 0
+                      && request.resource.data.votedBy == [];
 
         // 更新: 投稿者本人はタイトル編集可 / 他のユーザーは締め切り前の いいね(votes, votedBy) のみ
         allow update: if signedIn()
@@ -117,8 +156,8 @@ service cloud.firestore {
                          && request.resource.data.title.size() <= 100)
                         || (beforeDeadline(groupData(groupId))
                             && groupData(groupId).get('votingOpen', false) == true
-                            && selfVoteAllowed(groupData(groupId), resource.data)
-                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'votedBy']))
+                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'votedBy'])
+                            && validVote(groupData(groupId), resource.data, request.resource.data))
                       );
 
         // 削除: 投稿者本人 または グループ管理者
