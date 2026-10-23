@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>みんなのフォトコンテスト</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .masonry { column-count: 1; column-gap: 1rem; }
+        @media (min-width: 640px) { .masonry { column-count: 2; } }
+        @media (min-width: 1024px) { .masonry { column-count: 3; } }
+        .masonry-item { break-inside: avoid; margin-bottom: 1rem; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .text-shadow { text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+        .modal { transition: opacity .25s; }
+        .modal.hidden { display: none; }
+        .modal > div { margin-top: auto; margin-bottom: auto; }   /* 縦に長いモーダルでも上が切れずスクロールできる */
+        button, a { touch-action: manipulation; }                  /* スマホでのダブルタップ拡大を防ぐ */
+        input, textarea, select { font-size: 16px; }               /* iOS で入力欄フォーカス時に勝手にズームされるのを防ぐ */
+        .input { width: 100%; border: 1px solid #cbd5e1; border-radius: .5rem; padding: .5rem 1rem; }
+        .input:focus { outline: none; box-shadow: 0 0 0 2px #6366f1; border-color: #6366f1; }
+        .card-slide img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+            transition: transform .7s cubic-bezier(.4,0,.2,1), opacity .7s; }
+        .card-slide img.pos-right { transform: translateX(100%); }
+        .card-slide img.pos-left  { transform: translateX(-100%); }
+        .card-slide img.no-anim   { transition: none; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header id="appHeader" class="bg-white shadow-sm sticky top-0 z-20">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center gap-3">
+            <a href="#" class="text-xl font-bold text-indigo-600 flex items-center gap-2 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span class="hidden sm:inline">みんなのフォトコンテスト</span>
+            </a>
+            <div id="headerUser" class="flex items-center gap-3"></div>
+        </div>
+    </header>
+
+    <!-- アプリ内ブラウザ (LINE など) で開いたときの案内 -->
+    <div id="inAppBanner" class="hidden bg-amber-50 border-b border-amber-200 text-amber-900">
+        <div class="max-w-6xl mx-auto px-4 py-3 text-sm space-y-2">
+            <p class="font-semibold">⚠ LINE などのアプリ内ブラウザで開いています</p>
+            <p class="text-xs leading-relaxed">閲覧はできますが、Google がアプリ内ブラウザからのログインを拒否するため<b>ログイン・投稿・いいねはできません</b>。下のボタンでブラウザに切り替えてください。</p>
+            <div id="inAppButtons" class="flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <main id="mainApp" class="flex-1 p-4 md:p-6 lg:p-8 relative pb-10">
+        <div id="view" class="max-w-6xl mx-auto"></div>
+    </main>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6 relative">
+            <button onclick="closeModal('loginModal')" class="absolute top-3 right-3 text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-100">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-slate-800">ログイン</h2>
+                <p id="loginReason" class="text-slate-500 mt-2 text-sm">投稿・いいね・グループ作成にはGoogleアカウントでのログインが必要です</p>
+            </div>
+            <button onclick="signInWithGoogle()" class="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-6 py-3 rounded-xl font-medium transition-colors shadow-sm">
+                <svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Googleでログイン
+            </button>
+            <div id="loginWarn" class="hidden text-left bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl p-4 space-y-2">
+                <p class="font-semibold">アプリ内ブラウザでは Google ログインが使えません</p>
+                <p class="text-xs leading-relaxed">LINE・Instagram・X などのアプリの中で開いていると、Google がログインを拒否します。下のボタンか、画面のメニューから「<b>ブラウザで開く</b>」「Safari で開く」「Chrome で開く」を選んでください。</p>
+                <div id="loginWarnButtons" class="flex flex-wrap gap-2"></div>
+            </div>
+            <div id="loginError" class="hidden text-left bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 space-y-2">
+                <p id="loginErrorText" class="font-mono break-all"></p>
+                <button onclick="copyText(document.getElementById('loginErrorText').textContent, 'エラー内容をコピーしました')" class="text-xs underline">エラー内容をコピー</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Display Name Modal -->
+    <div id="nameModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <h2 class="text-lg font-bold text-slate-800">表示名を設定</h2>
+                <p class="text-xs text-slate-500 mt-1">投稿やいいねのときにこの名前が表示されます</p>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">表示名 (30文字まで)</label>
+                    <input type="text" id="displayNameInput" maxlength="30" placeholder="例: ますだ" class="input">
+                </div>
+                <div class="pt-2 flex gap-3">
+                    <button id="nameCancelBtn" onclick="closeModal('nameModal')" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50">キャンセル</button>
+                    <button onclick="saveDisplayName()" id="nameSaveBtn" class="flex-1 px-4 py-2 bg-indigo-600 rounded-lg text-white font-medium hover:bg-indigo-700">保存する</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create / Edit Group Modal -->
+    <div id="groupModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden my-auto">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="groupModalTitle" class="text-lg font-bold text-slate-800">フォトコングループを作る</h2>
+                <button onclick="closeModal('groupModal')" class="text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">グループ名 (50文字まで)</label>
+                    <input type="text" id="groupNameInput" maxlength="50" placeholder="例: 2026年 秋の風景フォトコン" class="input">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">説明 (任意)</label>
+                    <textarea id="groupDescInput" maxlength="200" rows="2" placeholder="テーマやルールなど" class="input"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-2">公開設定</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="visibility" value="open" class="peer sr-only" checked>
+                            <div class="border-2 border-slate-200 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 rounded-xl p-3 h-full">
+                                <div class="font-semibold text-slate-800">オープン</div>
+                                <p class="text-xs text-slate-500 mt-1">誰でも閲覧できます。ログインすれば誰でも投稿できます。</p>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="visibility" value="private" class="peer sr-only">
+                            <div class="border-2 border-slate-200 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 rounded-xl p-3 h-full">
+                                <div class="font-semibold text-slate-800">プライベート</div>
+                                <p class="text-xs text-slate-500 mt-1">一覧に表示されません。招待リンクから参加したメンバーだけが閲覧・投稿できます。</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">締め切り (任意)</label>
+                    <div class="flex gap-2">
+                        <input type="datetime-local" id="groupDeadlineInput" class="input">
+                        <button type="button" onclick="document.getElementById('groupDeadlineInput').value=''" class="shrink-0 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50">クリア</button>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">締め切りを過ぎると投稿と投票ができなくなります。</p>
+                </div>
+                <div>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer border border-slate-200 rounded-xl p-3">
+                        <div>
+                            <div class="text-sm font-medium text-slate-700">いいね数を公開する</div>
+                            <p class="text-xs text-slate-500 mt-0.5">オフにすると管理者以外にはいいね数と順位が表示されません。</p>
+                        </div>
+                        <input type="checkbox" id="groupShowVotesInput" class="h-5 w-5 accent-indigo-600" checked>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer border border-slate-200 rounded-xl p-3">
+                        <div>
+                            <div class="text-sm font-medium text-slate-700">自分の写真にいいねできる</div>
+                            <p class="text-xs text-slate-500 mt-0.5">オフにすると、投稿者は自分の写真に投票できなくなります。</p>
+                        </div>
+                        <input type="checkbox" id="groupSelfVoteInput" class="h-5 w-5 accent-indigo-600" checked>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">1人あたりの投票数</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="groupVoteLimitInput" min="1" max="999" inputmode="numeric" placeholder="無制限" class="input sm:max-w-[10rem]">
+                        <span class="text-sm text-slate-500">票まで</span>
+                        <button type="button" onclick="document.getElementById('groupVoteLimitInput').value=''" class="ml-auto shrink-0 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50">無制限にする</button>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">空欄なら無制限です。上限に達した人は、いいねを外せば別の写真に入れ直せます。</p>
+                </div>
+                <div class="pt-2 flex gap-3">
+                    <button onclick="closeModal('groupModal')" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50">キャンセル</button>
+                    <button onclick="submitGroup()" id="groupSubmitBtn" class="flex-1 px-4 py-2 bg-indigo-600 rounded-lg text-white font-medium hover:bg-indigo-700">作成する</button>
+                </div>
+                <div id="groupDangerZone" class="hidden pt-4 border-t border-slate-100">
+                    <button onclick="confirmDeleteGroup()" class="w-full text-sm text-red-600 hover:bg-red-50 border border-red-200 rounded-lg px-4 py-2 flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        このグループを削除する
+                    </button>
+                    <p class="text-xs text-slate-400 mt-2 text-center">投稿された写真もすべて削除されます。この操作は取り消せません。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 class="text-lg font-bold text-slate-800">写真を投稿</h2>
+                <button onclick="closeModal('uploadModal')" class="text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">タイトル / コメント</label>
+                    <input type="text" id="photoTitle" maxlength="100" placeholder="素敵な写真ですね！" class="input">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">写真を選択</label>
+                    <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-lg hover:border-indigo-400 transition-colors relative group cursor-pointer" onclick="document.getElementById('fileInput').click()">
+                        <div class="space-y-1 text-center">
+                            <div id="previewContainer" class="hidden mb-4">
+                                <img id="imagePreview" src="" alt="Preview" class="mx-auto h-40 object-contain rounded-md">
+                            </div>
+                            <div id="uploadPlaceholder">
+                                <svg class="mx-auto h-12 w-12 text-slate-400 group-hover:text-indigo-500" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                                <div class="text-sm text-indigo-600 font-medium mt-2">ファイルをアップロード</div>
+                                <p class="text-xs text-slate-500 mt-1">またはカメラを起動 (モバイル)</p>
+                            </div>
+                        </div>
+                    </div>
+                    <input id="fileInput" type="file" accept="image/*" class="sr-only" onchange="handleFileSelect(event)">
+                </div>
+                <div class="pt-2 flex gap-3">
+                    <button onclick="closeModal('uploadModal')" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50">キャンセル</button>
+                    <button onclick="submitPhoto()" id="submitBtn" class="flex-1 px-4 py-2 bg-indigo-600 rounded-lg text-white font-medium hover:bg-indigo-700 flex justify-center items-center gap-2">投稿する</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Photo Title Modal -->
+    <div id="editModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <h2 class="text-lg font-bold text-slate-800">タイトルを編集</h2>
+            </div>
+            <div class="p-6 space-y-4">
+                <img id="editPreview" src="" class="mx-auto max-h-40 rounded-md object-contain">
+                <input type="text" id="editTitleInput" maxlength="100" class="input">
+                <div class="pt-2 flex gap-3">
+                    <button onclick="closeModal('editModal')" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50">キャンセル</button>
+                    <button onclick="saveTitle()" id="editSaveBtn" class="flex-1 px-4 py-2 bg-indigo-600 rounded-lg text-white font-medium hover:bg-indigo-700">保存する</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Members Modal -->
+    <div id="membersModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="membersTitle" class="text-lg font-bold text-slate-800">参加メンバー</h2>
+                <button onclick="closeModal('membersModal')" class="text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <ul id="membersList" class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+                <li class="px-6 py-6 text-center text-sm text-slate-400">読み込み中...</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 space-y-4">
+            <p id="confirmText" class="text-slate-800 font-medium"></p>
+            <div class="flex gap-3">
+                <button onclick="closeModal('confirmModal')" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50">キャンセル</button>
+                <button id="confirmOkBtn" class="flex-1 px-4 py-2 bg-red-600 rounded-lg text-white font-medium hover:bg-red-700">削除する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer: build / diagnostics -->
+    <footer class="text-center text-[11px] text-slate-400 py-4 px-4">
+        <span>build __BUILD__</span>
+        <span class="mx-2">|</span>
+        <button onclick="runDiagnostics()" class="underline">接続診断</button>
+    </footer>
+
+    <!-- Error banner (JS エラーを可視化) -->
+    <div id="errorBanner" class="hidden fixed top-0 inset-x-0 z-[70] bg-red-600 text-white text-xs px-4 py-2 flex items-start gap-2">
+        <span class="flex-1 break-all" id="errorBannerText"></span>
+        <button onclick="copyText(document.getElementById('errorBannerText').textContent, 'エラー内容をコピーしました')" class="underline shrink-0">コピー</button>
+        <button onclick="document.getElementById('errorBanner').classList.add('hidden')" class="shrink-0">✕</button>
+    </div>
+
+    <!-- Diagnostics Modal -->
+    <div id="diagModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 class="text-lg font-bold text-slate-800">接続診断</h2>
+                <button onclick="closeModal('diagModal')" class="text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-200">✕</button>
+            </div>
+            <div class="p-6 space-y-3">
+                <pre id="diagText" class="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap break-all font-mono max-h-[50vh] overflow-y-auto">診断中...</pre>
+                <button onclick="copyText(document.getElementById('diagText').textContent, '診断結果をコピーしました')" class="w-full px-4 py-2 bg-indigo-600 rounded-lg text-white font-medium hover:bg-indigo-700">結果をコピー</button>
+                <p class="text-xs text-slate-400">コピーした内容を開発者に送ってください。</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-[60]">
+        <span id="toastMessage"></span>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { initializeFirestore, collection, addDoc, onSnapshot, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, limit, arrayUnion, writeBatch, getCountFromServer } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCwIKpOOYGs_SV8vsNAp9x9o6PL9zwdhaM",
+            // 配信ドメインと同じにすることで、Safari 等のサードパーティ Cookie 制限下でもリダイレクトログインが動く
+            authDomain: "photocontest-jbk.web.app",
+            projectId: "photocontest-jbk",
+            storageBucket: "photocontest-jbk.firebasestorage.app",
+            messagingSenderId: "952637621633",
+            appId: "1:952637621633:web:172b0bf71d771435849480",
+            measurementId: "G-2SWBWPWE0P"
+        };
+        const DEFAULT_AVATAR = 'https://placehold.co/100x100/e2e8f0/475569?text=U';
+        const BUILD = '__BUILD__';
+
+        // ---------- 予期しないエラーを画面に出す (スマホでの原因調査用) ----------
+        function showErrorBanner(msg) {
+            const el = document.getElementById('errorBanner');
+            document.getElementById('errorBannerText').textContent = `[build ${BUILD}] ${msg}`.slice(0, 600);
+            el.classList.remove('hidden');
+        }
+        window.addEventListener('error', (e) => showErrorBanner(`エラー: ${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`));
+        window.addEventListener('unhandledrejection', (e) => {
+            const r = e.reason || {};
+            showErrorBanner(`未処理エラー: ${r.code || ''} ${r.message || String(r)}`);
+        });
+
+        // ---------- 接続診断 ----------
+        window.runDiagnostics = async function() {
+            openModal('diagModal');
+            const out = [];
+            const line = (s) => { out.push(s); document.getElementById('diagText').textContent = out.join('\n'); };
+            line(`build: ${BUILD}`);
+            line(`time: ${new Date().toISOString()}`);
+            line(`url: ${location.href}`);
+            line(`ua: ${navigator.userAgent}`);
+            line(`online: ${navigator.onLine}  cookies: ${navigator.cookieEnabled}`);
+            try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); line('localStorage: OK'); } catch (e) { line('localStorage: NG ' + e.name); }
+            try { sessionStorage.setItem('__t', '1'); sessionStorage.removeItem('__t'); line('sessionStorage: OK'); } catch (e) { line('sessionStorage: NG ' + e.name); }
+            line(`indexedDB: ${typeof indexedDB !== 'undefined' ? 'あり' : 'なし'}`);
+            line(`auth init: ${authReady ? '完了' : '未完了 ← 認証の初期化が終わっていません'}`);
+            line(`login: ${currentUser ? 'ログイン中 (' + (currentUser.email || '') + ')' : 'ゲスト'}`);
+            line(`openGroups: ${openGroups.length}件  status: ${openStatus}`);
+            const probe = async (label, url, opts = {}) => {
+                const t = Date.now();
+                try {
+                    const r = await fetch(url, { cache: 'no-store', ...opts });
+                    line(`${label}: ${r.type === 'opaque' ? '到達OK' : 'HTTP ' + r.status} (${Date.now() - t}ms)`);
+                    return r;
+                } catch (e) { line(`${label}: 失敗 ${e.name} ${e.message} (${Date.now() - t}ms)`); }
+            };
+            const r = await probe('hosting (このサイト)', `${location.origin}/__/firebase/init.json`);
+            if (r && r.headers.get('date')) {
+                const skew = Math.round((new Date(r.headers.get('date')).getTime() - Date.now()) / 1000);
+                line(`時刻ずれ: ${skew}秒 ${Math.abs(skew) > 300 ? '← 端末の時刻が大きくずれています' : ''}`);
+            }
+            await probe('firestore REST', `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/groups?pageSize=1&mask.fieldPaths=name`);
+            await probe('firestore channel', `https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?VER=8&database=projects%2F${firebaseConfig.projectId}%2Fdatabases%2F(default)&RID=rpc&SID=x&CI=0&AID=0&TYPE=xmlhttp&zx=1`, { mode: 'no-cors' });
+            await probe('identitytoolkit (認証API)', `https://identitytoolkit.googleapis.com/v1/projects?key=${firebaseConfig.apiKey}`);
+            await probe('apis.google.com (ログイン用)', 'https://apis.google.com/js/api.js', { mode: 'no-cors' });
+            await probe('gstatic (SDK)', 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js', { mode: 'no-cors' });
+            await probe('accounts.google.com', 'https://accounts.google.com/favicon.ico', { mode: 'no-cors' });
+            await probe('auth handler', `${location.origin}/__/auth/handler`);
+            line('--- 完了 ---');
+        };
+
+        const app = initializeApp(firebaseConfig);
+        // iPhone の Safari / Chrome では標準のストリーミング通信が応答しないことがあるため、
+        // どの環境でも動くロングポーリング方式に固定する (接続診断で status: loading のまま止まる症状の対策)
+        const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+        // 認証状態の保存は localStorage を使う (iPhone では IndexedDB の初期化が止まることがある)
+        const auth = initializeAuth(app, { persistence: browserLocalPersistence, popupRedirectResolver: browserPopupRedirectResolver });
+        let authReady = false;   // onAuthStateChanged が一度でも呼ばれたか
+
+        // ---------- State ----------
+        let currentUser = null;      // Firebase Auth user (null = ゲスト)
+        let profile = null;          // users/{uid}
+        let openGroups = [];
+        let openStatus = 'loading';  // 'loading' | 'ok' | 'error:<code>' | 'timeout'
+        let myGroups = [];
+        let currentGroupId = null;
+        let currentGroup = null;
+        let photos = [];
+        let photosDenied = false;
+        let selectedImageBase64 = null;
+        let editingPhotoId = null;
+        let editingGroup = false;    // groupModal が編集モードか
+        let unsubOpen = null, unsubMine = null, unsubGroup = null, unsubPhotos = null;
+        let deadlineTimer = null;
+        const ensuredMemberships = new Set();
+        const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        function genInviteCode() {
+            const arr = new Uint32Array(6);
+            crypto.getRandomValues(arr);
+            return Array.from(arr, n => CODE_CHARS[n % CODE_CHARS.length]).join('');
+        }
+        const normalizeCode = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        let ensuringCode = false;
+        let inviteCodeShown = false;
+        let isDev = false;           // 開発者 (ルール側で許可されたアカウント) か
+        window.toggleInviteCode = function() { inviteCodeShown = !inviteCodeShown; renderGroup(); };
+
+        // 旧データ対応: 招待コードがないグループは管理者が開いたときに発行する
+        async function ensureInviteCode(g) {
+            if (!g || !isOwner(g) || g.inviteCode || ensuringCode) return;
+            ensuringCode = true;
+            try {
+                const code = genInviteCode();
+                const batch = writeBatch(db);
+                batch.update(doc(db, 'groups', g.id), { inviteCode: code });
+                batch.set(doc(db, 'invites', code), { groupId: g.id, createdAt: Date.now() });
+                await batch.commit();
+            } catch (e) { console.warn('ensureInviteCode', e.code); }
+            finally { ensuringCode = false; }
+        }
+
+        // 旧データ対応: members に入っているのに参加記録がないグループは記録を補完する
+        async function ensureMembership(g) {
+            if (!currentUser || !g || !isMember(g) || ensuredMemberships.has(g.id)) return;
+            ensuredMemberships.add(g.id);
+            try {
+                await setDoc(doc(db, 'users', currentUser.uid, 'memberships', g.id),
+                    { joinedAt: Date.now(), role: isOwner(g) ? 'owner' : 'member' }, { merge: true });
+            } catch (e) { console.warn('ensureMembership', e.code); ensuredMemberships.delete(g.id); }
+        }
+
+        const displayName = () => (profile && profile.displayName) || (currentUser && currentUser.displayName) || 'ゲスト';
+        const avatarUrl = () => (currentUser && currentUser.photoURL) || DEFAULT_AVATAR;
+        const isMember = (g) => !!(currentUser && g && Array.isArray(g.members) && g.members.includes(currentUser.uid));
+        const isOwner = (g) => !!(currentUser && g && g.ownerId === currentUser.uid);
+        const canPost = (g) => !!(currentUser && g && (g.visibility === 'open' || isMember(g)));
+        const hasDeadline = (g) => !!(g && typeof g.deadline === 'number');
+        const isClosed = (g) => hasDeadline(g) && Date.now() >= g.deadline;
+        const votesVisible = (g) => !g || g.showVotes !== false || isOwner(g);
+        const hasVoteLimit = (g) => !!(g && typeof g.voteLimit === 'number' && g.voteLimit > 0);
+        const selfVoteAllowed = (g) => !g || g.allowSelfVote !== false;   // 未設定なら許可
+        const votingStarted = (g) => !!(g && g.votingOpen === true);        // 管理者が「投票開始」を押したか
+        // このグループで自分が入れている票数 (読み込み済みの photos から数える)
+        const myVoteCount = () => currentUser ? photos.filter(p => Array.isArray(p.votedBy) && p.votedBy.includes(currentUser.uid)).length : 0;
+        const fmtDate = (ms) => new Date(ms).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        // ---------- Auth ----------
+        onAuthStateChanged(auth, async (user) => {
+            authReady = true;
+            currentUser = user;
+            profile = null;
+            ensuredMemberships.clear();
+            if (user) {
+                try {
+                    const snap = await getDoc(doc(db, 'users', user.uid));
+                    if (snap.exists()) profile = snap.data();
+                    else openNameModal(true);
+                } catch (e) { console.error(e); }
+            }
+            isDev = false;
+            if (user) {
+                // 全グループの一覧取得が許可されていれば開発者アカウント
+                try { await getDocs(query(collection(db, 'groups'), limit(1))); isDev = true; } catch (e) { isDev = false; }
+            }
+            renderHeader();
+            subscribeGroups();
+            route();
+            // ログイン前に入力していた招待コードがあれば続きを実行
+            const pending = sessionGet('pendingInviteCode');
+            if (user && pending) {
+                sessionSet('pendingInviteCode', null);
+                closeModal('loginModal');
+                setTimeout(() => joinByCode(pending), 300);
+            }
+        });
+
+        // スマホ (タッチ端末・小画面) ではポップアップがブロックされやすいのでリダイレクト方式を使う
+        const isMobile = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+                               || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+        // LINE / Instagram / Facebook / X などのアプリ内ブラウザ (Google ログインが拒否される)
+        const isInAppBrowser = () => /Line\/|FBAN|FBAV|FB_IAB|Instagram|Twitter|TwitterAndroid|MicroMessenger|Snapchat|TikTok|BytedanceWebview/i.test(navigator.userAgent);
+
+        const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const isAndroid = () => /Android/i.test(navigator.userAgent);
+
+        // 外部ブラウザで開くための URL 群。グループ ID は # ではなく ?g= で渡す (intent:// 等で # が使えないため)
+        function externalUrls() {
+            const m = location.hash.match(/^#g\/([A-Za-z0-9_-]+)/);
+            const q = new URLSearchParams();
+            q.set('openExternalBrowser', '1');          // LINE: 外部ブラウザで開く指示
+            if (m) q.set('g', m[1]);
+            const plain = `${location.origin}${location.pathname}?${q}`;
+            const hostPath = `${location.host}${location.pathname}?${q}`;
+            return {
+                line: plain,
+                chrome: isAndroid()
+                    ? `intent://${hostPath}#Intent;scheme=https;package=com.android.chrome;end`
+                    : `googlechromes://${hostPath}`,
+                safari: `x-safari-https://${hostPath}`,
+                copy: `${location.origin}${location.pathname}${m ? '?g=' + m[1] : ''}`
+            };
+        }
+
+        function renderInAppButtons(containerId) {
+            const el = document.getElementById(containerId);
+            if (!el) return;
+            const u = externalUrls();
+            const btn = 'text-xs border border-amber-400 bg-white text-amber-900 rounded-lg px-3 py-2 hover:bg-amber-100 flex-1 text-center';
+            let html = '';
+            if (/Line\//i.test(navigator.userAgent)) html += `<a href="${u.line}" target="_blank" rel="noopener" class="${btn} font-semibold">ブラウザで開く</a>`;
+            if (isIOS()) html += `<a href="${u.safari}" class="${btn}">Safari で開く</a>`;
+            html += `<a href="${u.chrome}" class="${btn}">Chrome で開く</a>`;
+            html += `<button onclick="copyText('${u.copy}', 'URLをコピーしました。Safari や Chrome に貼り付けて開いてください')" class="${btn}">URL をコピー</button>`;
+            el.innerHTML = html;
+        }
+
+        // ?g=ID で開かれたら #g/ID に変換する (外部ブラウザ用リンクからの戻り)
+        {
+            const q = new URLSearchParams(location.search);
+            if (q.get('g') && !location.hash) {
+                // クエリ (openExternalBrowser=1 など) は残したままハッシュだけ付ける (消すと LINE 判定が無限リロードになる)
+                history.replaceState(null, '', `${location.pathname}${location.search}#g/${q.get('g')}`);
+            }
+        }
+
+        // LINE のアプリ内ブラウザで開かれたら、まず LINE の機能で外部ブラウザに切り替えを試みる
+        if (/Line\//i.test(navigator.userAgent) && !/[?&]openExternalBrowser=1/.test(location.search)) {
+            location.replace(externalUrls().line);
+        }
+        // それでもアプリ内ブラウザのままなら、画面上部に案内を出す
+        if (isInAppBrowser()) {
+            document.getElementById('inAppBanner').classList.remove('hidden');
+            renderInAppButtons('inAppButtons');
+            window.addEventListener('hashchange', () => renderInAppButtons('inAppButtons'));
+        }
+
+        const sessionGet = (k) => { try { return sessionStorage.getItem(k); } catch (e) { return null; } };
+        const sessionSet = (k, v) => { try { v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) {} };
+
+        function showLoginError(error) {
+            const code = (error && error.code) || 'unknown';
+            const msg = (error && error.message) || '';
+            const hints = {
+                'auth/popup-blocked': 'ポップアップがブロックされました。もう一度押すとページ遷移方式で再試行します。',
+                'auth/unauthorized-domain': 'このドメインが Firebase の承認済みドメインに入っていません。',
+                'auth/operation-not-allowed': 'Google ログインが Firebase 側で有効になっていません。',
+                'auth/network-request-failed': '通信エラーです。電波状況を確認して再試行してください。',
+                'auth/web-storage-unsupported': 'ブラウザのストレージが使えません。プライベートモードを解除してください。',
+                'auth/missing-or-invalid-nonce': 'ログイン状態の保存に失敗しました。プライベートモードや Cookie 制限を確認してください。',
+            };
+            document.getElementById('loginErrorText').textContent = `[build ${BUILD}] ${code}  ${hints[code] || ''}  ${msg}`.trim();
+            document.getElementById('loginError').classList.remove('hidden');
+            if (isInAppBrowser()) document.getElementById('loginWarn').classList.remove('hidden');
+            openModal('loginModal');
+        }
+
+        // ---------- Google へ直接ページ遷移するログイン (Firebase の補助フレームを使わない) ----------
+        // iPhone の Safari / Chrome では Firebase 標準の signInWithRedirect が遷移前に止まるため、
+        // Google の OAuth 画面へ直接移動し、戻ってきた ID トークンを Firebase に渡す。
+        const GOOGLE_CLIENT_ID = '952637621633-5epckkvg1r9hnt32a1k5ukqmgl1mfml1.apps.googleusercontent.com';
+        const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+
+        function startGoogleRedirectLogin() {
+            const state = randomToken(), nonce = randomToken();
+            sessionSet('oauthState', state);
+            sessionSet('oauthNonce', nonce);
+            sessionSet('oauthReturnHash', location.hash || '');
+            const params = new URLSearchParams({
+                client_id: GOOGLE_CLIENT_ID,
+                redirect_uri: `${location.origin}/`,
+                response_type: 'id_token',
+                scope: 'openid email profile',
+                nonce, state,
+                prompt: 'select_account'
+            });
+            showToast('Google のログイン画面へ移動します...');
+            location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+        }
+
+        // Google から戻ってきた直後 (URL の # に id_token が入っている) の処理
+        async function handleOAuthReturn() {
+            if (!/[#&]id_token=/.test(location.hash)) return false;
+            const h = new URLSearchParams(location.hash.slice(1));
+            const idToken = h.get('id_token'), state = h.get('state'), err = h.get('error');
+            const returnHash = sessionGet('oauthReturnHash') || '';
+            const expectedState = sessionGet('oauthState'), expectedNonce = sessionGet('oauthNonce');
+            sessionSet('oauthState', null); sessionSet('oauthNonce', null); sessionSet('oauthReturnHash', null);
+            history.replaceState(null, '', location.pathname + returnHash);   // トークンを URL から消す
+            if (err) { showLoginError({ code: 'google/' + err, message: h.get('error_description') || '' }); return true; }
+            if (!idToken || state !== expectedState) { showLoginError({ code: 'oauth-state-mismatch', message: 'ログインの照合に失敗しました。もう一度お試しください。' }); return true; }
+            try {
+                const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                if (expectedNonce && payload.nonce !== expectedNonce) throw { code: 'oauth-nonce-mismatch', message: 'ログインの照合に失敗しました。' };
+                await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+                closeModal('loginModal');
+            } catch (e) {
+                console.error('signInWithCredential', e);
+                showLoginError(e);
+            }
+            return true;
+        }
+        // モジュール全体の評価が終わってから実行する (openModal などの定義を待つ)
+        Promise.resolve().then(handleOAuthReturn);
+
+        // リダイレクトから戻ってきたときの結果 (エラーがあれば表示)
+        getRedirectResult(auth).then((res) => {
+            if (res && res.user) closeModal('loginModal');
+        }).catch((error) => {
+            console.error("Redirect Sign-In Error:", error);
+            showLoginError(error);
+        });
+
+        window.signInWithGoogle = async function() {
+            document.getElementById('loginError').classList.add('hidden');
+            // アプリ内ブラウザの疑いがあれば注意を出すが、ログイン自体は試みる (誤判定でも止めない)
+            if (isInAppBrowser()) {
+                document.getElementById('loginWarn').classList.remove('hidden');
+                renderInAppButtons('loginWarnButtons');
+            }
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: 'select_account' });
+            try {
+                if (isMobile()) {
+                    startGoogleRedirectLogin();   // Google へ直接ページ遷移
+                    return;
+                }
+                await signInWithPopup(auth, provider);
+                closeModal('loginModal');
+            } catch (error) {
+                console.error("Google Sign-In Error:", error);
+                if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment', 'auth/cancelled-popup-request'].includes(error.code)) {
+                    startGoogleRedirectLogin();
+                    return;
+                }
+                if (error.code === 'auth/popup-closed-by-user') return;
+                showLoginError(error);
+            }
+        };
+
+        window.logout = async function() {
+            try { await signOut(auth); showToast('ログアウトしました'); } catch (e) { console.error(e); }
+        };
+
+        window.requireLogin = function(reason) {
+            if (currentUser) return true;
+            document.getElementById('loginReason').textContent = reason || '投稿・いいね・グループ作成にはGoogleアカウントでのログインが必要です';
+            document.getElementById('loginError').classList.add('hidden');
+            document.getElementById('loginWarn').classList.toggle('hidden', !isInAppBrowser());
+            if (isInAppBrowser()) renderInAppButtons('loginWarnButtons');
+            openModal('loginModal');
+            return false;
+        };
+
+        // ---------- Display name ----------
+        window.openNameModal = function(firstTime) {
+            document.getElementById('displayNameInput').value = displayName() === 'ゲスト' ? '' : displayName();
+            document.getElementById('nameCancelBtn').classList.toggle('hidden', !!firstTime);
+            openModal('nameModal');
+            setTimeout(() => document.getElementById('displayNameInput').focus(), 50);
+        };
+
+        window.saveDisplayName = async function() {
+            if (!currentUser) return;
+            const name = document.getElementById('displayNameInput').value.trim();
+            if (!name) { showToast('表示名を入力してください'); return; }
+            const btn = document.getElementById('nameSaveBtn');
+            btn.disabled = true;
+            try {
+                const data = { displayName: name, photoURL: avatarUrl(), updatedAt: Date.now() };
+                await setDoc(doc(db, 'users', currentUser.uid), data, { merge: true });
+                profile = { ...(profile || {}), ...data };
+                closeModal('nameModal');
+                renderHeader();
+                showToast(`表示名を「${name}」にしました`);
+            } catch (e) {
+                console.error(e);
+                showToast('保存に失敗しました');
+            } finally { btn.disabled = false; }
+        };
+
+        // ---------- Header ----------
+        function renderHeader() {
+            const el = document.getElementById('headerUser');
+            if (!currentUser) {
+                el.innerHTML = `
+                    <span class="text-xs text-slate-400 hidden sm:inline">ゲストとして閲覧中</span>
+                    <button onclick="requireLogin()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm font-medium shadow-sm">ログイン</button>`;
+                return;
+            }
+            el.innerHTML = `
+                <button onclick="openNameModal(false)" title="表示名を変更" class="flex items-center gap-2 border border-slate-200 rounded-full pl-1 pr-3 py-1 hover:bg-slate-50">
+                    <img src="${avatarUrl()}" class="w-7 h-7 rounded-full bg-slate-100">
+                    <span class="text-sm font-medium text-slate-700 max-w-[5.5rem] sm:max-w-[8rem] truncate">${escapeHTML(displayName())}</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </button>
+                ${isDev ? `<a href="#admin" class="text-xs border border-slate-300 text-slate-600 hover:bg-slate-50 rounded-full px-3 py-1.5">開発者</a>` : ''}
+                <button onclick="logout()" class="text-slate-500 hover:text-slate-700" title="ログアウト">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                </button>`;
+        }
+
+        // ---------- Routing ----------
+        window.addEventListener('hashchange', route);
+        function route() {
+            const m = location.hash.match(/^#g\/([A-Za-z0-9_-]+)/);
+            if (m) showGroup(m[1]);
+            else if (location.hash === '#admin') { leaveGroup(); renderAdmin(); }
+            else { leaveGroup(); renderHome(); }
+        }
+
+        // ---------- Groups list ----------
+        function subscribeGroups() {
+            if (unsubOpen) unsubOpen();
+            if (unsubMine) unsubMine();
+            unsubMine = null;
+            openGroups = []; myGroups = [];
+
+            openStatus = 'loading';
+            const watchdog = setTimeout(() => { if (openStatus === 'loading') { openStatus = 'timeout'; renderHome(); } }, 10000);
+            unsubOpen = onSnapshot(query(collection(db, 'groups'), where('visibility', '==', 'open')), (snap) => {
+                clearTimeout(watchdog);
+                openStatus = 'ok';
+                openGroups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                openGroups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                openGroups.forEach(ensureMembership);
+                renderHome();
+            }, (e) => {
+                clearTimeout(watchdog);
+                console.error('open groups', e);
+                openStatus = 'error:' + (e.code || e.message);
+                renderHome();
+            });
+
+            if (currentUser) {
+                // 自分の参加記録 users/{uid}/memberships/{groupId} を監視し、各グループ本体を取得
+                unsubMine = onSnapshot(collection(db, 'users', currentUser.uid, 'memberships'), async (snap) => {
+                    const ids = snap.docs.map(d => d.id);
+                    const results = await Promise.all(ids.map(async (id) => {
+                        try {
+                            const g = await getDoc(doc(db, 'groups', id));
+                            if (!g.exists()) {
+                                // グループが削除されていたら参加記録も片付ける
+                                deleteDoc(doc(db, 'users', currentUser.uid, 'memberships', id)).catch(() => {});
+                                return null;
+                            }
+                            return { id: g.id, ...g.data() };
+                        } catch (e) { console.warn('group fetch', id, e.code); return null; }
+                    }));
+                    myGroups = results.filter(Boolean);
+                    myGroups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    renderHome();
+                }, (e) => console.error('my groups', e));
+            }
+        }
+
+        function badge(g) {
+            return g.visibility === 'private'
+                ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full whitespace-nowrap">プライベート</span>'
+                : '<span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full whitespace-nowrap">オープン</span>';
+        }
+        function deadlineBadge(g) {
+            if (!hasDeadline(g)) return '';
+            return isClosed(g)
+                ? '<span class="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full whitespace-nowrap">締め切り済み</span>'
+                : `<span class="text-xs text-slate-400 whitespace-nowrap"> ${fmtDate(g.deadline)} まで</span>`;
+        }
+
+        function groupCard(g) {
+            return `
+                <a href="#g/${g.id}" class="block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:-translate-y-0.5 hover:shadow-md transition">
+                    <div class="card-slide relative h-40 bg-slate-100 overflow-hidden" data-gid="${g.id}">
+                        <img class="slide-a" alt="">
+                        <img class="slide-b pos-right" alt="">
+                        <div class="slide-empty absolute inset-0 flex items-center justify-center text-slate-400 text-sm">読み込み中...</div>
+                    </div>
+                    <div class="p-5">
+                    <div class="flex items-start justify-between gap-2">
+                        <h3 class="font-bold text-slate-800 truncate">${escapeHTML(g.name || '')}${isOwner(g) ? ' <span class="text-xs font-normal text-indigo-500">(管理者)</span>' : ''}</h3>
+                        ${badge(g)}
+                    </div>
+                    <p class="text-sm text-slate-500 mt-2 line-clamp-2 min-h-[1.25rem]">${escapeHTML(g.description || '')}</p>
+                    <div class="text-xs text-slate-400 mt-3 flex justify-between items-center gap-2">
+                        <span class="truncate">作成: ${escapeHTML(g.ownerName || '')} ・ ${Array.isArray(g.members) ? g.members.length : 0}人</span>
+                        ${deadlineBadge(g)}
+                    </div>
+                    </div>
+                </a>`;
+        }
+
+        // ---------- カードの写真スライドショー ----------
+        const groupPhotoCache = {};   // gid -> { list: [image...], at: ms }
+        const CACHE_TTL = 2 * 60 * 1000;
+
+        async function fetchGroupPhotos(gid) {
+            const c = groupPhotoCache[gid];
+            if (c && Date.now() - c.at < CACHE_TTL) return c.list;
+            let list = [];
+            try {
+                const snap = await getDocs(query(collection(db, 'groups', gid, 'photos'), limit(12)));
+                list = snap.docs.map(d => d.data().image).filter(Boolean);
+                for (let i = list.length - 1; i > 0; i--) {       // シャッフル
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [list[i], list[j]] = [list[j], list[i]];
+                }
+            } catch (e) { /* 権限なし(プライベート非メンバー)など */ }
+            groupPhotoCache[gid] = { list, at: Date.now() };
+            return list;
+        }
+
+        function initCardSlides() {
+            document.querySelectorAll('.card-slide:not([data-ready])').forEach(async (el) => {
+                const gid = el.dataset.gid;
+                const list = await fetchGroupPhotos(gid);
+                if (!el.isConnected) return;
+                const empty = el.querySelector('.slide-empty');
+                if (!list.length) {
+                    if (empty) empty.textContent = groupPhotoCache[gid] ? '写真はまだありません' : '';
+                    el.dataset.ready = 'empty';
+                    return;
+                }
+                if (empty) empty.remove();
+                const idx = Math.floor(Math.random() * list.length);
+                el.querySelector('.slide-a').src = list[idx];
+                el.dataset.cur = idx;
+                el.dataset.front = 'a';
+                el.dataset.ready = '1';
+                el.dataset.nextAt = Date.now() + 2500 + Math.random() * 3500;
+            });
+        }
+
+        function tickSlides() {
+            const now = Date.now();
+            document.querySelectorAll('.card-slide[data-ready="1"]').forEach((el) => {
+                if (now < Number(el.dataset.nextAt || 0)) return;
+                const c = groupPhotoCache[el.dataset.gid];
+                const list = c ? c.list : [];
+                if (list.length < 2) return;
+                el.dataset.nextAt = now + 3500 + Math.random() * 3000;
+
+                let next = Math.floor(Math.random() * list.length);
+                if (next === Number(el.dataset.cur)) next = (next + 1) % list.length;
+                const frontKey = el.dataset.front || 'a';
+                const front = el.querySelector(frontKey === 'a' ? '.slide-a' : '.slide-b');
+                const back  = el.querySelector(frontKey === 'a' ? '.slide-b' : '.slide-a');
+
+                back.onload = () => {
+                    back.onload = null;
+                    back.classList.remove('pos-right');   // 右から流れ込む
+                    front.classList.add('pos-left');      // 左へ流れ出る
+                    setTimeout(() => {
+                        front.classList.add('no-anim');
+                        front.classList.remove('pos-left');
+                        front.classList.add('pos-right');
+                        void front.offsetWidth;           // 位置を確定させてから再びアニメ有効化
+                        front.classList.remove('no-anim');
+                    }, 750);
+                    el.dataset.front = frontKey === 'a' ? 'b' : 'a';
+                    el.dataset.cur = next;
+                };
+                back.src = list[next];
+            });
+        }
+        setInterval(tickSlides, 400);
+
+        function renderHome() {
+            if (currentGroupId || location.hash === '#admin') return;
+            const view = document.getElementById('view');
+            const openOnly = openGroups;
+            view.innerHTML = `
+                <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-800">みんなのフォトコンテスト</h2>
+                        <p class="text-slate-500 mt-1 text-sm">グループを作って写真を投稿し、いいねで競いましょう。${currentUser ? '' : 'ゲストのままオープンなフォトコンを閲覧できます。'}</p>
+                    </div>
+                    <button onclick="openGroupModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-full font-medium shadow-sm flex items-center justify-center gap-2 shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                        フォトコングループを作る
+                    </button>
+                </section>
+                <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-8">
+                    <h3 class="text-base font-bold text-slate-700">招待コードで参加</h3>
+                    <p class="text-xs text-slate-500 mt-1 mb-3">管理者やメンバーから教えてもらった 6 文字のコードを入力してください。</p>
+                    <form onsubmit="event.preventDefault(); joinByCode();" class="flex flex-col sm:flex-row gap-2">
+                        <input type="text" id="inviteCodeInput" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="例: AB3K7Q" class="input sm:max-w-xs font-mono tracking-widest uppercase">
+                        <button type="submit" id="joinByCodeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm shrink-0">参加する</button>
+                    </form>
+                </section>
+                ${currentUser ? `
+                <section class="mb-8">
+                    <h3 class="text-lg font-bold text-slate-700 mb-3">参加中のグループ</h3>
+                    ${myGroups.length ? `<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${myGroups.map(groupCard).join('')}</div>`
+                        : '<p class="text-sm text-slate-400 bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">まだ参加しているグループはありません。作成するか、招待リンクから参加してください。</p>'}
+                </section>` : ''}
+                <section>
+                    <h3 class="text-lg font-bold text-slate-700 mb-3">オープンなフォトコン</h3>
+                    ${openOnly.length ? `<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${openOnly.map(groupCard).join('')}</div>`
+                        : openStatus === 'loading' ? '<p class="text-sm text-slate-400 bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">読み込み中...</p>'
+                        : openStatus === 'ok' ? '<p class="text-sm text-slate-400 bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center">オープンなフォトコンはまだありません。</p>'
+                        : `<div class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-2">
+                               <p>サーバーからデータを取得できていません (${escapeHTML(openStatus === 'timeout' ? '10秒以上応答なし' : openStatus)})。</p>
+                               <p class="text-xs text-red-500">通信環境を確認するか、下の「接続診断」を実行して結果を開発者に送ってください。</p>
+                               <button onclick="location.reload()" class="text-xs border border-red-300 rounded-full px-3 py-1 hover:bg-red-100">再読み込み</button>
+                               <button onclick="runDiagnostics()" class="text-xs border border-red-300 rounded-full px-3 py-1 hover:bg-red-100">接続診断</button>
+                           </div>`}
+                </section>`;
+            initCardSlides();
+        }
+
+        // ---------- 開発者用 統計ページ (#admin) ----------
+        async function renderAdmin() {
+            const view = document.getElementById('view');
+            if (!currentUser) { view.innerHTML = '<p class="text-center text-slate-500 py-20">ログインしてください。</p>'; return; }
+            if (!isDev) { view.innerHTML = '<p class="text-center text-slate-500 py-20">このページを見る権限がありません。</p>'; return; }
+            view.innerHTML = '<p class="text-center text-slate-400 py-20">集計中...</p>';
+            try {
+                const [groupSnap, userCount] = await Promise.all([
+                    getDocs(collection(db, 'groups')),
+                    getCountFromServer(collection(db, 'users'))
+                ]);
+                const groups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                // 写真枚数は集計クエリで取得 (画像本体はダウンロードしない)
+                const counts = await Promise.all(groups.map(g =>
+                    getCountFromServer(collection(db, 'groups', g.id, 'photos')).then(c => c.data().count).catch(() => null)));
+                groups.forEach((g, i) => g.photoCount = counts[i]);
+
+                const uniq = new Set();
+                groups.forEach(g => (g.members || []).forEach(u => uniq.add(u)));
+                const openN = groups.filter(g => g.visibility === 'open').length;
+                const privN = groups.length - openN;
+                const photosTotal = counts.reduce((a, c) => a + (c || 0), 0);
+                const week = Date.now() - 7 * 86400000;
+                const newGroups = groups.filter(g => (g.createdAt || 0) > week).length;
+
+                const stat = (label, value, sub) => `
+                    <div class="bg-white rounded-xl border border-slate-200 p-4">
+                        <div class="text-xs text-slate-500">${label}</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-1">${value}</div>
+                        ${sub ? `<div class="text-xs text-slate-400 mt-1">${sub}</div>` : ''}
+                    </div>`;
+
+                const rows = groups.map(g => `
+                    <tr class="border-t border-slate-100 hover:bg-slate-50">
+                        <td class="px-3 py-2"><a href="#g/${g.id}" class="text-indigo-600 hover:underline">${escapeHTML(g.name || '')}</a></td>
+                        <td class="px-3 py-2 whitespace-nowrap">${g.visibility === 'private' ? '🔒 プライベート' : '🌐 オープン'}</td>
+                        <td class="px-3 py-2 text-right">${(g.members || []).length}</td>
+                        <td class="px-3 py-2 text-right">${g.photoCount === null ? '-' : g.photoCount}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${escapeHTML(g.ownerName || '')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-500">${g.createdAt ? fmtDate(g.createdAt) : ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-500">${hasDeadline(g) ? fmtDate(g.deadline) + (isClosed(g) ? ' (終了)' : '') : ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${g.showVotes === false ? '非公開' : '公開'}</td>
+                    </tr>`).join('');
+
+                view.innerHTML = `
+                    <div class="mb-4"><a href="#" class="text-sm text-indigo-600 hover:underline">← トップへ</a></div>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-1">開発者ダッシュボード</h2>
+                    <p class="text-xs text-slate-400 mb-6">プライベートグループも含む全体の利用状況です。写真の中身は表示しません。</p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                        ${stat('登録ユーザー', userCount.data().count, '表示名を設定した人')}
+                        ${stat('参加者 (重複なし)', uniq.size, 'いずれかのグループのメンバー')}
+                        ${stat('グループ', groups.length, `オープン ${openN} / プライベート ${privN}`)}
+                        ${stat('写真', photosTotal, `直近7日の新規グループ ${newGroups}`)}
+                    </div>
+                    <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-500 text-xs">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">グループ</th><th class="px-3 py-2 text-left">公開</th>
+                                    <th class="px-3 py-2 text-right">人数</th><th class="px-3 py-2 text-right">写真</th>
+                                    <th class="px-3 py-2 text-left">管理者</th><th class="px-3 py-2 text-left">作成日</th>
+                                    <th class="px-3 py-2 text-left">締め切り</th><th class="px-3 py-2 text-left">いいね数</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows || '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">グループはありません</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-4">より詳しいデータは <a class="underline" target="_blank" rel="noopener" href="https://console.firebase.google.com/project/photocontest-jbk/firestore">Firebase コンソール</a> で確認できます。</p>`;
+            } catch (e) {
+                console.error(e);
+                view.innerHTML = '<p class="text-center text-red-500 py-20">集計に失敗しました。</p>';
+            }
+        }
+
+        // ---------- Create / Edit group ----------
+        function toLocalInput(ms) {
+            const d = new Date(ms);
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        }
+
+        window.openGroupModal = function() {
+            if (!requireLogin('グループを作成するにはログインが必要です')) return;
+            editingGroup = false;
+            document.getElementById('groupModalTitle').textContent = 'フォトコングループを作る';
+            document.getElementById('groupSubmitBtn').textContent = '作成する';
+            document.getElementById('groupNameInput').value = '';
+            document.getElementById('groupDescInput').value = '';
+            document.getElementById('groupDeadlineInput').value = '';
+            document.getElementById('groupShowVotesInput').checked = true;
+            document.getElementById('groupVoteLimitInput').value = '';
+            document.getElementById('groupSelfVoteInput').checked = true;
+            document.querySelector('input[name="visibility"][value="open"]').checked = true;
+            document.getElementById('groupDangerZone').classList.add('hidden');
+            openModal('groupModal');
+            setTimeout(() => document.getElementById('groupNameInput').focus(), 50);
+        };
+
+        window.openGroupSettings = function() {
+            const g = currentGroup;
+            if (!g || !isOwner(g)) return;
+            editingGroup = true;
+            document.getElementById('groupModalTitle').textContent = 'グループ設定 (管理者)';
+            document.getElementById('groupSubmitBtn').textContent = '保存する';
+            document.getElementById('groupNameInput').value = g.name || '';
+            document.getElementById('groupDescInput').value = g.description || '';
+            document.getElementById('groupDeadlineInput').value = hasDeadline(g) ? toLocalInput(g.deadline) : '';
+            document.getElementById('groupShowVotesInput').checked = g.showVotes !== false;
+            document.getElementById('groupVoteLimitInput').value = hasVoteLimit(g) ? g.voteLimit : '';
+            document.getElementById('groupSelfVoteInput').checked = selfVoteAllowed(g);
+            document.querySelector(`input[name="visibility"][value="${g.visibility === 'private' ? 'private' : 'open'}"]`).checked = true;
+            document.getElementById('groupDangerZone').classList.remove('hidden');
+            openModal('groupModal');
+        };
+
+        window.confirmDeleteGroup = function() {
+            const g = currentGroup;
+            if (!g || !isOwner(g)) return;
+            closeModal('groupModal');
+            document.getElementById('confirmText').textContent = `グループ「${g.name || ''}」を削除しますか？投稿された写真 ${photos.length} 枚もすべて消えます。この操作は取り消せません。`;
+            document.getElementById('confirmOkBtn').onclick = () => deleteGroup(g.id);
+            openModal('confirmModal');
+        };
+
+        async function deleteGroup(groupId) {
+            if (!currentUser) return;
+            closeModal('confirmModal');
+            showToast('削除しています...');
+            try {
+                // 1) 写真を 400 件ずつ削除 (バッチ上限 500)
+                const photoSnap = await getDocs(collection(db, 'groups', groupId, 'photos'));
+                const docs = photoSnap.docs;
+                for (let i = 0; i < docs.length; i += 400) {
+                    const b = writeBatch(db);
+                    docs.slice(i, i + 400).forEach(d => b.delete(d.ref));
+                    await b.commit();
+                }
+                // 2) 招待コード・自分の参加記録・グループ本体をまとめて削除
+                const g = currentGroup && currentGroup.id === groupId ? currentGroup : null;
+                const b = writeBatch(db);
+                if (g && g.inviteCode) b.delete(doc(db, 'invites', g.inviteCode));
+                b.delete(doc(db, 'users', currentUser.uid, 'memberships', groupId));
+                b.delete(doc(db, 'groups', groupId));
+                await b.commit();
+                leaveGroup();
+                location.hash = '';
+                showToast('グループを削除しました');
+            } catch (e) {
+                console.error(e);
+                showToast('削除に失敗しました');
+            }
+        }
+
+        function readGroupForm() {
+            const name = document.getElementById('groupNameInput').value.trim();
+            const description = document.getElementById('groupDescInput').value.trim();
+            const visibility = document.querySelector('input[name="visibility"]:checked').value;
+            const dl = document.getElementById('groupDeadlineInput').value;
+            const deadline = dl ? new Date(dl).getTime() : null;
+            const showVotes = document.getElementById('groupShowVotesInput').checked;
+            const vl = document.getElementById('groupVoteLimitInput').value.trim();
+            const voteLimit = vl === '' ? null : Math.max(1, Math.min(999, parseInt(vl, 10) || 0)) || null;
+            const allowSelfVote = document.getElementById('groupSelfVoteInput').checked;
+            return { name, description, visibility, deadline, showVotes, voteLimit, allowSelfVote };
+        }
+
+        window.submitGroup = async function() {
+            if (!currentUser) return;
+            const data = readGroupForm();
+            if (!data.name) { showToast('グループ名を入力してください'); return; }
+            if (data.deadline !== null && isNaN(data.deadline)) { showToast('締め切りの日時が不正です'); return; }
+            const btn = document.getElementById('groupSubmitBtn');
+            btn.disabled = true;
+            try {
+                if (editingGroup && currentGroup) {
+                    await updateDoc(doc(db, 'groups', currentGroup.id), data);
+                    closeModal('groupModal');
+                    showToast('設定を保存しました');
+                } else {
+                    const groupRef = doc(collection(db, 'groups'));
+                    const inviteCode = genInviteCode();
+                    const batch = writeBatch(db);
+                    batch.set(groupRef, {
+                        ...data,
+                        inviteCode,
+                        votingOpen: false,          // 管理者が「投票開始」を押すまで投票不可
+                        ownerId: currentUser.uid,
+                        ownerName: displayName(),
+                        members: [currentUser.uid],
+                        createdAt: Date.now()
+                    });
+                    batch.set(doc(db, 'invites', inviteCode), { groupId: groupRef.id, createdAt: Date.now() });
+                    batch.set(doc(db, 'users', currentUser.uid, 'memberships', groupRef.id), { joinedAt: Date.now(), role: 'owner' });
+                    await batch.commit();
+                    closeModal('groupModal');
+                    showToast('グループを作成しました');
+                    location.hash = `#g/${groupRef.id}`;
+                }
+            } catch (e) {
+                console.error(e);
+                showToast(editingGroup ? '保存に失敗しました' : '作成に失敗しました');
+            } finally { btn.disabled = false; }
+        };
+
+        // ---------- Group view ----------
+        function leaveGroup() {
+            if (unsubGroup) unsubGroup();
+            if (unsubPhotos) unsubPhotos();
+            if (deadlineTimer) clearTimeout(deadlineTimer);
+            unsubGroup = unsubPhotos = deadlineTimer = null;
+            if (currentGroupId) delete groupPhotoCache[currentGroupId];
+            currentGroupId = null; currentGroup = null; photos = []; photosDenied = false; inviteCodeShown = false;
+        }
+
+        function showGroup(groupId) {
+            if (currentGroupId !== groupId) {
+                leaveGroup();
+                currentGroupId = groupId;
+                document.getElementById('view').innerHTML = '<p class="text-center text-slate-400 py-20">読み込み中...</p>';
+                unsubGroup = onSnapshot(doc(db, 'groups', groupId), (snap) => {
+                    if (!snap.exists()) {
+                        showToast('グループが見つかりません');
+                        location.hash = '';
+                        return;
+                    }
+                    currentGroup = { id: snap.id, ...snap.data() };
+                    ensureMembership(currentGroup);
+                    ensureInviteCode(currentGroup);
+                    subscribePhotos();
+                    scheduleDeadlineRefresh();
+                    renderGroup();
+                }, (e) => {
+                    console.error(e);
+                    showToast('グループを読み込めませんでした');
+                    location.hash = '';
+                });
+            } else {
+                subscribePhotos(true);
+                renderGroup();
+            }
+        }
+
+        // 締め切りを過ぎた瞬間に画面を更新する
+        function scheduleDeadlineRefresh() {
+            if (deadlineTimer) clearTimeout(deadlineTimer);
+            deadlineTimer = null;
+            const g = currentGroup;
+            if (hasDeadline(g) && !isClosed(g)) {
+                const wait = Math.min(g.deadline - Date.now() + 500, 2147000000);
+                deadlineTimer = setTimeout(() => { renderGroup(); showToast('締め切り時間になりました'); }, wait);
+            }
+        }
+
+        function subscribePhotos(force) {
+            if (!currentGroupId || !currentGroup) return;
+            if (unsubPhotos && !force) return;
+            if (unsubPhotos) unsubPhotos();
+            photosDenied = false;
+            unsubPhotos = onSnapshot(collection(db, 'groups', currentGroupId, 'photos'), (snap) => {
+                photos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                photosDenied = false;
+                renderGroup();
+            }, (e) => {
+                console.warn('photos', e.code);
+                photos = [];
+                photosDenied = true;
+                renderGroup();
+            });
+        }
+
+        function sortedPhotos() {
+            const list = [...photos];
+            if (votesVisible(currentGroup)) {
+                list.sort((a, b) => (b.votes || 0) - (a.votes || 0) || (b.createdAt || 0) - (a.createdAt || 0));
+            } else {
+                list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            }
+            return list;
+        }
+
+        function renderGroup() {
+            const g = currentGroup;
+            if (!g) return;
+            const view = document.getElementById('view');
+            const member = isMember(g);
+            const owner = isOwner(g);
+            const closed = isClosed(g);
+
+            let action = '';
+            if (!currentUser) {
+                action = `<button onclick="requireLogin('写真の投稿やいいねにはログインが必要です')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm font-medium shadow-sm">ログインして参加</button>`;
+            } else if (g.visibility === 'private' && !member) {
+                action = `<button onclick="joinGroup()" id="joinBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm font-medium shadow-sm">このグループに参加する</button>`;
+            } else {
+                if (g.visibility === 'open' && !member) {
+                    action += `<button onclick="joinGroup()" id="joinBtn" class="border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded-full text-sm font-medium">参加する</button>`;
+                }
+                action += closed
+                    ? `<span class="text-sm text-slate-500 bg-slate-100 px-4 py-2 rounded-full">投稿は締め切られました</span>`
+                    : `<button onclick="openUploadModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm font-medium shadow-sm flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>写真を投稿</button>`;
+            }
+            if (owner) {
+                action += `<button onclick="openGroupSettings()" class="border border-slate-300 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1" title="グループ設定">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>設定</button>`;
+            }
+
+            let notice = '';
+            if ((member || owner) && g.inviteCode && inviteCodeShown) {
+                notice += `<div class="bg-white border border-slate-200 text-sm rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
+                    <span class="text-slate-600">招待コード</span>
+                    <span class="font-mono text-lg font-bold tracking-widest text-indigo-700 select-all">${escapeHTML(g.inviteCode)}</span>
+                    <button onclick="copyText('${escapeHTML(g.inviteCode)}', '招待コードをコピーしました')" class="text-xs border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50">コードをコピー</button>
+                    <span class="text-xs text-slate-400">トップページの「招待コードで参加」にこのコードを入力すると参加できます。</span>
+                    <button onclick="toggleInviteCode()" class="ml-auto text-xs text-slate-400 hover:text-slate-600">閉じる</button>
+                </div>`;
+            }
+            if (hasDeadline(g)) {
+                notice += closed
+                    ? `<div class="bg-slate-100 text-slate-600 text-sm rounded-xl px-4 py-3 mb-4"> このフォトコンは <b>${fmtDate(g.deadline)}</b> に締め切られました。投稿と投票はできません。</div>`
+                    : `<p class="text-xs text-slate-400 mb-4 px-1">締め切り: ${fmtDate(g.deadline)}</p>`;
+            }
+            if (!photosDenied && !closed) {
+                notice += votingStarted(g)
+                    ? `<div class="bg-emerald-50 text-emerald-700 text-sm rounded-xl px-4 py-3 mb-4 flex items-center justify-between gap-3">
+                           <span>🗳 投票を受け付けています</span>
+                           ${owner ? `<button onclick="setVoting(false)" class="text-xs border border-emerald-300 rounded-full px-3 py-1 hover:bg-emerald-100">投票を停止する</button>` : ''}
+                       </div>`
+                    : `<div class="bg-slate-100 text-slate-600 text-sm rounded-xl px-4 py-3 mb-4 flex items-center justify-between gap-3">
+                           <span>投票はまだ開始されていません${owner ? '' : '。管理者が開始するとハートを押せるようになります'}</span>
+                           ${owner ? `<button onclick="setVoting(true)" class="text-xs bg-indigo-600 text-white rounded-full px-4 py-1.5 font-medium hover:bg-indigo-700 shrink-0">投票を開始する</button>` : ''}
+                       </div>`;
+            }
+            if (hasVoteLimit(g) && !photosDenied) {
+                const used = myVoteCount();
+                const left = Math.max(0, g.voteLimit - used);
+                notice += currentUser && (g.visibility === 'open' || member)
+                    ? `<div class="bg-white border border-slate-200 text-sm rounded-xl px-4 py-3 mb-4 flex items-center justify-between gap-3">
+                           <span class="text-slate-600">投票は 1人 <b>${g.voteLimit}</b> 票まで</span>
+                           <span class="${left === 0 ? 'text-slate-400' : 'text-indigo-700 font-semibold'}">あなたの残り ${left} 票 (${used}/${g.voteLimit})</span>
+                       </div>`
+                    : `<p class="text-xs text-slate-400 mb-4 px-1">投票は 1人 ${g.voteLimit} 票まで</p>`;
+            }
+            if (g.showVotes === false) {
+                notice += owner
+                    ? `<div class="bg-indigo-50 text-indigo-700 text-sm rounded-xl px-4 py-3 mb-4"> いいね数は現在<b>非公開</b>です (管理者のみ表示)。公開するには「設定」から変更できます。</div>`
+                    : `<div class="bg-indigo-50 text-indigo-700 text-sm rounded-xl px-4 py-3 mb-4"> いいね数は管理者が公開するまで非公開です。</div>`;
+            }
+
+            let body;
+            if (photosDenied) {
+                body = `<div class="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-500">
+                    <p class="text-3xl mb-2">🔒</p>
+                    <p>このグループはプライベートです。${currentUser ? '「このグループに参加する」を押すと写真が見られます。' : 'ログインして参加すると写真が見られます。'}</p>
+                </div>`;
+            } else if (!photos.length) {
+                body = `<div class="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-400">まだ写真がありません。${closed ? '' : '最初の1枚を投稿しましょう！'}</div>`;
+            } else {
+                body = `<div class="masonry">${sortedPhotos().map(photoCard).join('')}</div>`;
+            }
+
+            view.innerHTML = `
+                <div class="mb-4">
+                    <a href="#" class="text-sm text-indigo-600 hover:underline flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>グループ一覧へ
+                    </a>
+                </div>
+                <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-2xl font-bold text-slate-800 break-words">${escapeHTML(g.name || '')}</h2>
+                            ${badge(g)}
+                            ${owner ? '<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">管理者</span>' : ''}
+                        </div>
+                        ${g.description ? `<p class="text-slate-500 mt-1 text-sm whitespace-pre-line">${escapeHTML(g.description)}</p>` : ''}
+                        <p class="text-xs text-slate-400 mt-2">作成: ${escapeHTML(g.ownerName || '')} ・ メンバー ${Array.isArray(g.members) ? g.members.length : 0}人 ・ 写真 ${photos.length}枚</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 md:flex md:items-center md:flex-wrap md:shrink-0 [&>*]:justify-center">
+                        <button onclick="copyInviteLink()" class="border border-slate-300 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1" title="${g.visibility === 'private' ? '招待リンク' : '共有リンク'}をコピー">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                            ${g.visibility === 'private' ? '招待リンク' : 'リンク'}
+                        </button>
+                        ${(g.visibility === 'open' || member || owner) ? `<button onclick="openMembersModal()" class="border border-slate-300 text-slate-600 hover:bg-slate-50 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1" title="参加メンバーを表示">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                            メンバー ${Array.isArray(g.members) ? g.members.length : 0}
+                        </button>` : ''}
+                        ${(member || owner) && g.inviteCode ? `<button onclick="toggleInviteCode()" class="border ${inviteCodeShown ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'} px-4 py-2 rounded-full text-sm font-medium flex items-center gap-1" title="招待コードを表示">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                            招待コード
+                        </button>` : ''}
+                        ${action}
+                    </div>
+                </section>
+                ${notice}
+                ${body}`;
+        }
+
+        function photoCard(photo) {
+            const g = currentGroup;
+            const isLiked = currentUser && Array.isArray(photo.votedBy) && photo.votedBy.includes(currentUser.uid);
+            const mine = currentUser && photo.uploaderId === currentUser.uid;
+            const showCount = votesVisible(g);
+            const closed = isClosed(g);
+            const limitReached = !isLiked && hasVoteLimit(g) && currentUser && myVoteCount() >= g.voteLimit;
+            const selfBlocked = !isLiked && mine && !selfVoteAllowed(g);
+            const notStarted = !votingStarted(g);
+            const controls = (mine || isOwner(g)) ? `
+                <div class="flex items-center gap-1">
+                    ${mine ? `<button onclick="openEditModal('${photo.id}')" class="p-1.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="タイトルを編集">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>` : ''}
+                    <button onclick="confirmDeletePhoto('${photo.id}')" class="p-1.5 rounded-full text-slate-400 hover:text-red-600 hover:bg-red-50" title="削除">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                </div>` : '';
+            return `
+                <div class="masonry-item bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 hover:-translate-y-1 transition-transform duration-300">
+                    <div class="relative group">
+                        <img src="${photo.image}" alt="${escapeHTML(photo.title || '')}" class="w-full h-auto object-cover" loading="lazy">
+                        <div class="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end">
+                            <p class="text-white p-4 font-medium text-shadow truncate w-full">${escapeHTML(photo.title || '')}</p>
+                        </div>
+                    </div>
+                    <div class="p-4 flex flex-col gap-3 bg-white">
+                        <div class="flex items-center gap-2">
+                            <img src="${photo.uploaderPhoto || DEFAULT_AVATAR}" class="w-6 h-6 rounded-full border border-slate-200 bg-slate-100">
+                            <span class="text-xs text-slate-500 truncate flex-1">${escapeHTML(photo.uploaderName || 'ゲスト')}</span>
+                            ${controls}
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <p class="text-sm text-slate-800 font-medium truncate flex-1 mr-2">${escapeHTML(photo.title || '')}</p>
+                            <button onclick="toggleVote('${photo.id}')" ${closed ? 'disabled' : ''}
+                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ml-auto ${isLiked ? 'bg-pink-50 text-pink-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${closed ? 'opacity-60 cursor-not-allowed' : notStarted ? 'opacity-40 cursor-not-allowed' : selfBlocked ? 'opacity-40 cursor-not-allowed' : limitReached ? 'opacity-50' : ''}" title="${closed ? '投票は締め切られました' : notStarted ? '投票はまだ開始されていません' : selfBlocked ? '自分の写真にはいいねできません' : limitReached ? '投票数の上限に達しています' : 'いいね'}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ${isLiked ? 'fill-current' : 'fill-none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                                </svg>
+                                ${showCount ? `<span class="font-bold">${photo.votes || 0}</span>` : '<span class="text-xs text-slate-400">非公開</span>'}
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        window.joinGroup = async function() {
+            if (!requireLogin('グループに参加するにはログインが必要です')) return;
+            if (!currentGroup) return;
+            const btn = document.getElementById('joinBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const batch = writeBatch(db);
+                batch.update(doc(db, 'groups', currentGroup.id), { members: arrayUnion(currentUser.uid) });
+                batch.set(doc(db, 'users', currentUser.uid, 'memberships', currentGroup.id), { joinedAt: Date.now(), role: 'member' });
+                await batch.commit();
+                showToast('グループに参加しました');
+                setTimeout(() => subscribePhotos(true), 300);
+            } catch (e) {
+                console.error(e);
+                showToast('参加に失敗しました');
+                if (btn) btn.disabled = false;
+            }
+        };
+
+        window.joinByCode = async function(codeArg) {
+            const input = document.getElementById('inviteCodeInput');
+            const code = normalizeCode(codeArg || (input && input.value));
+            if (!code) { showToast('招待コードを入力してください'); return; }
+            if (code.length !== 6) { showToast('招待コードは6文字です'); return; }
+            if (!currentUser) {
+                // ログイン後 (リダイレクトで戻ってきた後も) に自動で参加処理を続ける
+                sessionSet('pendingInviteCode', code);
+                requireLogin('招待コードで参加するにはログインが必要です。ログイン後、自動的に参加します。');
+                return;
+            }
+            const btn = document.getElementById('joinByCodeBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const inv = await getDoc(doc(db, 'invites', code));
+                if (!inv.exists()) { showToast('その招待コードは見つかりません'); return; }
+                const groupId = inv.data().groupId;
+                const gs = await getDoc(doc(db, 'groups', groupId));
+                if (!gs.exists()) { showToast('グループが見つかりません'); return; }
+                const g = { id: gs.id, ...gs.data() };
+                if (isMember(g)) {
+                    showToast('すでに参加しています');
+                } else {
+                    const batch = writeBatch(db);
+                    batch.update(doc(db, 'groups', g.id), { members: arrayUnion(currentUser.uid) });
+                    batch.set(doc(db, 'users', currentUser.uid, 'memberships', g.id), { joinedAt: Date.now(), role: 'member' });
+                    await batch.commit();
+                    showToast(`「${g.name || ''}」に参加しました`);
+                }
+                if (input) input.value = '';
+                location.hash = `#g/${g.id}`;
+            } catch (e) {
+                console.error(e);
+                showToast('参加に失敗しました');
+            } finally { if (btn) btn.disabled = false; }
+        };
+
+        // ---------- 参加メンバー一覧 ----------
+        const userCache = {};   // uid -> { displayName, photoURL } (users/{uid})
+        async function fetchUser(uid) {
+            if (userCache[uid]) return userCache[uid];
+            try {
+                const snap = await getDoc(doc(db, 'users', uid));
+                userCache[uid] = snap.exists() ? snap.data() : {};
+            } catch (e) { userCache[uid] = {}; }
+            return userCache[uid];
+        }
+
+        window.openMembersModal = async function() {
+            const g = currentGroup;
+            if (!g) return;
+            const ids = Array.isArray(g.members) ? g.members : [];
+            document.getElementById('membersTitle').textContent = `参加メンバー (${ids.length}人)`;
+            const list = document.getElementById('membersList');
+            list.innerHTML = '<li class="px-6 py-6 text-center text-sm text-slate-400">読み込み中...</li>';
+            openModal('membersModal');
+            const users = await Promise.all(ids.map(fetchUser));
+            // 管理者を先頭に、あとは参加順 (members 配列の順)
+            const rows = ids.map((uid, i) => ({ uid, ...users[i] }))
+                .sort((a, b) => (b.uid === g.ownerId) - (a.uid === g.ownerId));
+            // 自分のプロフィールは最新の表示名を使う
+            if (currentUser) {
+                const me = rows.find(r => r.uid === currentUser.uid);
+                if (me) { me.displayName = displayName(); me.photoURL = avatarUrl(); }
+            }
+            const postCount = {};
+            photos.forEach(p => { postCount[p.uploaderId] = (postCount[p.uploaderId] || 0) + 1; });
+            list.innerHTML = rows.length ? rows.map(r => `
+                <li class="px-6 py-3 flex items-center gap-3">
+                    <img src="${r.photoURL || DEFAULT_AVATAR}" class="w-10 h-10 rounded-full border border-slate-200 bg-slate-100 object-cover" onerror="this.src='${DEFAULT_AVATAR}'">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm font-medium text-slate-800 truncate">${escapeHTML(r.displayName || '名前未設定')}${currentUser && r.uid === currentUser.uid ? ' <span class="text-xs text-slate-400">(あなた)</span>' : ''}</div>
+                        <div class="text-xs text-slate-400">${photosDenied ? '' : `投稿 ${postCount[r.uid] || 0} 枚`}</div>
+                    </div>
+                    ${r.uid === g.ownerId ? '<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full shrink-0">管理者</span>' : ''}
+                </li>`).join('')
+                : '<li class="px-6 py-6 text-center text-sm text-slate-400">メンバーはいません</li>';
+        };
+
+        window.copyText = async function(text, msg) {
+            try { await navigator.clipboard.writeText(text); showToast(msg || 'コピーしました'); }
+            catch (e) { prompt('コピーしてください', text); }
+        };
+
+        window.copyInviteLink = async function() {
+            if (!currentGroup) return;
+            // openExternalBrowser=1 を付けると LINE で開いたときに自動で Safari / Chrome に切り替わる
+            const url = `${location.origin}${location.pathname}?openExternalBrowser=1&g=${currentGroup.id}`;
+            try {
+                await navigator.clipboard.writeText(url);
+                showToast('リンクをコピーしました');
+            } catch (e) {
+                prompt('このリンクをコピーしてください', url);
+            }
+        };
+
+        // ---------- 投票の開始 / 停止 (管理者) ----------
+        window.setVoting = async function(open) {
+            const g = currentGroup;
+            if (!g || !isOwner(g)) return;
+            try {
+                await updateDoc(doc(db, 'groups', g.id), { votingOpen: !!open });
+                showToast(open ? '投票を開始しました' : '投票を停止しました');
+            } catch (e) {
+                console.error(e);
+                showToast('変更に失敗しました');
+            }
+        };
+
+        // ---------- Vote ----------
+        window.toggleVote = async function(photoId) {
+            if (!requireLogin('いいねするにはログインが必要です')) return;
+            if (!currentGroup) return;
+            if (isClosed(currentGroup)) { showToast('投票は締め切られました'); return; }
+            if (!votingStarted(currentGroup)) { showToast('投票はまだ開始されていません。管理者が「投票開始」を押すと投票できます'); return; }
+            if (currentGroup.visibility === 'private' && !isMember(currentGroup)) {
+                showToast('参加するといいねできます'); return;
+            }
+            const docRef = doc(db, 'groups', currentGroup.id, 'photos', photoId);
+            try {
+                const docSnap = await getDoc(docRef);
+                if (!docSnap.exists()) return;
+                const data = docSnap.data();
+                let votedBy = data.votedBy || [];
+                let votes = data.votes || 0;
+                if (votedBy.includes(currentUser.uid)) {
+                    votedBy = votedBy.filter(id => id !== currentUser.uid);
+                    votes = Math.max(0, votes - 1);
+                } else {
+                    if (!selfVoteAllowed(currentGroup) && data.uploaderId === currentUser.uid) {
+                        showToast('このグループでは自分の写真にはいいねできません');
+                        return;
+                    }
+                    if (hasVoteLimit(currentGroup) && myVoteCount() >= currentGroup.voteLimit) {
+                        showToast(`投票できるのは 1人 ${currentGroup.voteLimit} 票までです。他の写真のいいねを外すと入れ直せます。`);
+                        return;
+                    }
+                    votedBy.push(currentUser.uid);
+                    votes += 1;
+                }
+                await updateDoc(docRef, { votes, votedBy });
+            } catch (error) {
+                console.error("Error updating vote:", error);
+                showToast("投票の処理に失敗しました。");
+            }
+        };
+
+        // ---------- Edit / Delete photo ----------
+        window.openEditModal = function(photoId) {
+            const p = photos.find(x => x.id === photoId);
+            if (!p) return;
+            editingPhotoId = photoId;
+            document.getElementById('editPreview').src = p.image;
+            document.getElementById('editTitleInput').value = p.title || '';
+            openModal('editModal');
+            setTimeout(() => document.getElementById('editTitleInput').focus(), 50);
+        };
+
+        window.saveTitle = async function() {
+            if (!currentUser || !currentGroup || !editingPhotoId) return;
+            const title = document.getElementById('editTitleInput').value.trim();
+            if (!title) { showToast('タイトルを入力してください'); return; }
+            const btn = document.getElementById('editSaveBtn');
+            btn.disabled = true;
+            try {
+                await updateDoc(doc(db, 'groups', currentGroup.id, 'photos', editingPhotoId), { title, updatedAt: Date.now() });
+                closeModal('editModal');
+                showToast('タイトルを更新しました');
+            } catch (e) {
+                console.error(e);
+                showToast('更新に失敗しました');
+            } finally { btn.disabled = false; }
+        };
+
+        window.confirmDeletePhoto = function(photoId) {
+            const p = photos.find(x => x.id === photoId);
+            if (!p) return;
+            document.getElementById('confirmText').textContent = `「${p.title || ''}」を削除しますか？この操作は取り消せません。`;
+            document.getElementById('confirmOkBtn').onclick = () => deletePhoto(photoId);
+            openModal('confirmModal');
+        };
+
+        async function deletePhoto(photoId) {
+            if (!currentUser || !currentGroup) return;
+            closeModal('confirmModal');
+            try {
+                await deleteDoc(doc(db, 'groups', currentGroup.id, 'photos', photoId));
+                showToast('写真を削除しました');
+            } catch (e) {
+                console.error(e);
+                showToast('削除に失敗しました');
+            }
+        }
+
+        // ---------- Upload ----------
+        window.openUploadModal = function() {
+            if (!requireLogin('写真を投稿するにはログインが必要です')) return;
+            if (!canPost(currentGroup)) { showToast('このグループに参加してから投稿してください'); return; }
+            if (isClosed(currentGroup)) { showToast('投稿は締め切られました'); return; }
+            document.getElementById('photoTitle').value = '';
+            document.getElementById('fileInput').value = '';
+            selectedImageBase64 = null;
+            document.getElementById('previewContainer').classList.add('hidden');
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+            openModal('uploadModal');
+        };
+
+        window.handleFileSelect = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) { showToast('画像ファイルを選択してください。'); return; }
+            try {
+                selectedImageBase64 = await resizeAndCompressImage(file, 800, 0.7);
+                document.getElementById('imagePreview').src = selectedImageBase64;
+                document.getElementById('previewContainer').classList.remove('hidden');
+                document.getElementById('uploadPlaceholder').classList.add('hidden');
+            } catch (error) {
+                console.error("Image processing error:", error);
+                showToast('画像の処理に失敗しました。');
+            }
+        };
+
+        window.submitPhoto = async function() {
+            if (!currentUser || !currentGroup) { showToast('認証されていません。'); return; }
+            if (isClosed(currentGroup)) { showToast('投稿は締め切られました'); return; }
+            const title = document.getElementById('photoTitle').value.trim();
+            if (!selectedImageBase64) { showToast('写真を選択してください。'); return; }
+            if (!title) { showToast('タイトルを入力してください。'); return; }
+
+            const btn = document.getElementById('submitBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 投稿中...`;
+            btn.disabled = true;
+            try {
+                const batch = writeBatch(db);
+                batch.set(doc(collection(db, 'groups', currentGroup.id, 'photos')), {
+                    title,
+                    image: selectedImageBase64,
+                    uploaderId: currentUser.uid,
+                    uploaderName: displayName(),
+                    uploaderPhoto: avatarUrl(),
+                    votes: 0,
+                    votedBy: [],
+                    createdAt: Date.now()
+                });
+                // オープングループに初投稿したら自動的に参加扱いにする
+                if (!isMember(currentGroup)) {
+                    batch.update(doc(db, 'groups', currentGroup.id), { members: arrayUnion(currentUser.uid) });
+                    batch.set(doc(db, 'users', currentUser.uid, 'memberships', currentGroup.id), { joinedAt: Date.now(), role: 'member' });
+                }
+                await batch.commit();
+                closeModal('uploadModal');
+                showToast('投稿が完了しました！');
+            } catch (error) {
+                console.error("Upload error:", error);
+                showToast('アップロードに失敗しました。');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
+
+        // ---------- Helpers ----------
+        window.openModal = (id) => document.getElementById(id).classList.remove('hidden');
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+        function resizeAndCompressImage(file, maxSize, quality) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width, height = img.height;
+                        if (width > height) {
+                            if (width > maxSize) { height *= maxSize / width; width = maxSize; }
+                        } else {
+                            if (height > maxSize) { width *= maxSize / height; height = maxSize; }
+                        }
+                        canvas.width = width; canvas.height = height;
+                        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = reject;
+                };
+                reader.onerror = reject;
+            });
+        }
+
+        function escapeHTML(str) {
+            return String(str).replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+        }
+
+        let toastTimeout;
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMessage').innerText = message;
+            toast.classList.remove('opacity-0');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => toast.classList.add('opacity-0'), 3000);
+        }
+
+        // ---------- 初期描画 ----------
+        // 認証の初期化を待たずに、まずゲストとして画面を描く。
+        // (iPhone で認証の初期化が止まっても白紙にならないようにする。初期化が終われば onAuthStateChanged が描き直す)
+        if (!authReady) {
+            renderHeader();
+            subscribeGroups();
+            route();
+        }
+        setTimeout(() => {
+            if (!authReady) showErrorBanner('ログイン機能の初期化が完了していません。ページを再読み込みしてください。(auth init timeout)');
+        }, 10000);
+    </script>
+</body>
+</html>

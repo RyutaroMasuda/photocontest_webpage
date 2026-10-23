@@ -1,0 +1,36 @@
+# ---- ビルド成果物 (deploy.sh が code.html から生成する) ----
+public/
+
+# ---- Firebase ----
+.firebase/
+firebase-debug.log*
+firebase-debug.*.log*
+firestore-debug.log*
+ui-debug.log*
+.dataconnect
+
+# ---- ローカル作業用・未使用ファイル ----
+archiv/
+*.bak
+a.txt
+dataconnect/
+
+# ---- AI エージェント / エディタの設定 ----
+.claude/
+.agents/
+skills-lock.json
+.vscode/
+.idea/
+
+# ---- 秘密情報 (念のため) ----
+.env
+.env.*
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# ---- OS / Node ----
+.DS_Store
+Thumbs.db
+node_modules/
+npm-debug.log*
+*.log

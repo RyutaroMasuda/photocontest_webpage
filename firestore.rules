@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // 開発者アカウント: admins/{uid} ドキュメントが存在するユーザー。
+    // admins コレクションはアプリからは読み書き不可。Firebase コンソールで手動追加する (README 参照)
+    function isDev() {
+      return signedIn()
+             && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isMember(group) {
+      return signedIn() && group.members is list && request.auth.uid in group.members;
+    }
+    function groupData(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data;
+    }
+    // オープンなら誰でも(ゲスト含む)、プライベートならメンバーのみ
+    function canSeeGroup(group) {
+      return group.visibility == 'open' || isMember(group);
+    }
+    // 締め切り前か (deadline が未設定 / null なら常に true)
+    function beforeDeadline(group) {
+      return !('deadline' in group) || group.deadline == null
+             || (group.deadline is number && request.time.toMillis() < group.deadline);
+    }
+    // 自分の写真へのいいね: グループ設定 allowSelfVote が false のときは投稿者本人の投票を拒否
+    function selfVoteAllowed(group, photo) {
+      return !('allowSelfVote' in group) || group.allowSelfVote != false
+             || photo.uploaderId != request.auth.uid;
+    }
+    function validGroupFields(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 50
+             && d.visibility in ['open', 'private']
+             && (!('description' in d) || (d.description is string && d.description.size() <= 200))
+             && (!('deadline' in d) || d.deadline == null || d.deadline is number)
+             && (!('inviteCode' in d) || (d.inviteCode is string && d.inviteCode.size() == 6))
+             && (!('showVotes' in d) || d.showVotes is bool)
+             && (!('voteLimit' in d) || d.voteLimit == null || (d.voteLimit is int && d.voteLimit >= 1 && d.voteLimit <= 999))
+             && (!('allowSelfVote' in d) || d.allowSelfVote is bool)
+             && (!('votingOpen' in d) || d.votingOpen is bool);
+    }
+
+    // ユーザープロフィール (表示名)
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if signedIn() && request.auth.uid == userId
+                   && request.resource.data.displayName is string
+                   && request.resource.data.displayName.size() > 0
+                   && request.resource.data.displayName.size() <= 30;
+
+      // 自分が参加しているグループの記録 (本人のみ読み書き可)
+      match /memberships/{groupId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // 招待コード -> グループID の対応表。コードを知っているログインユーザーだけが取得可 (一覧は不可)
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      // グループ本体 (同じバッチ内の書き込み後の状態) の管理者が、そのグループの inviteCode と一致するコードだけ作成できる
+      allow create: if signedIn()
+                    && request.resource.data.groupId is string
+                    && code.size() == 6
+                    && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.ownerId == request.auth.uid
+                    && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.inviteCode == code;
+      allow update: if false;
+      allow delete: if signedIn()
+                    && get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.ownerId == request.auth.uid;
+    }
+
+    // フォトコングループ
+    match /groups/{groupId} {
+      // IDを知っていれば誰でも取得可 (招待リンク用)。一覧はオープンのみ
+      allow get: if true;
+      allow list: if resource.data.visibility == 'open' || isDev();
+
+      allow create: if signedIn()
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.members == [request.auth.uid]
+                    && validGroupFields(request.resource.data);
+
+      // 管理者(作成者)は設定を変更可。他のユーザーは「自分を members に追加」だけ可
+      allow update: if signedIn() && (
+                      (resource.data.ownerId == request.auth.uid
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['name', 'description', 'visibility', 'deadline', 'showVotes', 'voteLimit', 'allowSelfVote', 'votingOpen', 'ownerName', 'inviteCode'])
+                       && validGroupFields(request.resource.data))
+                      || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+                          && request.resource.data.members == resource.data.members.concat([request.auth.uid]))
+                    );
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      // グループ内の写真
+      match /photos/{photoId} {
+        allow read: if canSeeGroup(groupData(groupId)) || isDev();
+
+        // 投稿: 閲覧権限があり、締め切り前で、自分の uid が入っていること
+        allow create: if signedIn()
+                      && canSeeGroup(groupData(groupId))
+                      && beforeDeadline(groupData(groupId))
+                      && request.resource.data.uploaderId == request.auth.uid
+                      && request.resource.data.title is string
+                      && request.resource.data.title.size() > 0
+                      && request.resource.data.title.size() <= 100
+                      && request.resource.data.image is string;
+
+        // 更新: 投稿者本人はタイトル編集可 / 他のユーザーは締め切り前の いいね(votes, votedBy) のみ
+        allow update: if signedIn()
+                      && canSeeGroup(groupData(groupId))
+                      && (
+                        (resource.data.uploaderId == request.auth.uid
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'updatedAt'])
+                         && request.resource.data.title is string
+                         && request.resource.data.title.size() > 0
+                         && request.resource.data.title.size() <= 100)
+                        || (beforeDeadline(groupData(groupId))
+                            && groupData(groupId).get('votingOpen', false) == true
+                            && selfVoteAllowed(groupData(groupId), resource.data)
+                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'votedBy']))
+                      );
+
+        // 削除: 投稿者本人 または グループ管理者
+        allow delete: if signedIn()
+                      && (resource.data.uploaderId == request.auth.uid
+                          || groupData(groupId).ownerId == request.auth.uid);
+      }
+    }
+  }
+}
