@@ -2,6 +2,7 @@
 
 仲間うちで写真を投稿し、いいねで競う小さなフォトコンテストアプリです。
 HTML 1 枚と Firebase (Hosting / Authentication / Cloud Firestore) だけで動きます。
+URLは[こちら](https://photocontest-jbk.web.app/)
 
 ## 構成
 
