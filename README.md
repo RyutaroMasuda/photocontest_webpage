@@ -1,7 +1,7 @@
 # みんなのフォトコンテスト
 
 仲間うちで写真を投稿し、いいねで競う小さなフォトコンテストアプリです。
-HTML 1 枚と Firebase (Hosting / Authentication / Cloud Firestore) だけで動きます。サーバー側のコードはありません。
+HTML 1 枚と Firebase (Hosting / Authentication / Cloud Firestore) だけで動きます。
 
 ## 主な機能
 
@@ -36,16 +36,6 @@ HTML 1 枚と Firebase (Hosting / Authentication / Cloud Firestore) だけで動
 
 `public/` は `deploy.sh` が `code.html` から生成するため、リポジトリには含めていません。
 
-### データ構造 (Firestore)
-
-| パス | 内容 |
-| --- | --- |
-| `users/{uid}` | 表示名とアイコン |
-| `users/{uid}/memberships/{groupId}` | 自分が参加しているグループの記録 |
-| `groups/{groupId}` | グループ本体 (名前、公開設定、メンバー、各種設定) |
-| `groups/{groupId}/photos/{photoId}` | 投稿写真 (画像は縮小した Base64 で保存)、いいね |
-| `invites/{code}` | 招待コードとグループ ID の対応 |
-| `admins/{uid}` | 開発者アカウント (コンソールからのみ管理) |
 
 ## セットアップ (自分の Firebase プロジェクトで動かす)
 
