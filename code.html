@@ -244,6 +244,16 @@
         </div>
     </div>
 
+    <!-- Photo Viewer Modal (サムネイルをタップしたときの拡大表示) -->
+    <div id="viewerModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm px-2 sm:px-4 overflow-y-auto py-6" onclick="if (event.target === this) closePhotoViewer()">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden relative">
+            <button onclick="closePhotoViewer()" class="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/40 text-white hover:bg-black/60 flex items-center justify-center" title="閉じる">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div id="viewerBody"></div>
+        </div>
+    </div>
+
     <!-- Edit Photo Title Modal -->
     <div id="editModal" class="modal hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4 overflow-y-auto py-6">
         <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
@@ -449,6 +459,7 @@
         let photosDenied = false;
         let selectedImageBase64 = null;
         let editingPhotoId = null;
+        let viewerPhotoId = null;    // 拡大表示中の写真 ID
         let editingGroup = false;    // groupModal が編集モードか
         let unsubOpen = null, unsubMine = null, unsubGroup = null, unsubPhotos = null;
         let deadlineTimer = null;
@@ -1179,6 +1190,7 @@
             unsubGroup = unsubPhotos = deadlineTimer = null;
             if (currentGroupId) delete groupPhotoCache[currentGroupId];
             currentGroupId = null; currentGroup = null; photos = []; photosDenied = false; inviteCodeShown = false;
+            if (viewerPhotoId) closePhotoViewer();
         }
 
         function showGroup(groupId) {
@@ -1325,7 +1337,9 @@
             } else if (!photos.length) {
                 body = `<div class="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-400">まだ写真がありません。${closed ? '' : '最初の1枚を投稿しましょう！'}</div>`;
             } else {
-                body = `<div class="masonry">${sortedPhotos().map(photoCard).join('')}</div>`;
+                body = viewToggle() + (galleryView === 'thumb'
+                    ? `<div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">${sortedPhotos().map(thumbCard).join('')}</div>`
+                    : `<div class="masonry">${sortedPhotos().map(photoCard).join('')}</div>`);
             }
 
             view.innerHTML = `
@@ -1362,9 +1376,12 @@
                 </section>
                 ${notice}
                 ${body}`;
+            // 拡大表示を開いていれば、いいね数や削除を反映して描き直す
+            renderPhotoViewer();
         }
 
-        function photoCard(photo) {
+        // ---------- 写真まわりの共通部品 (一覧・サムネイル・拡大表示で共用) ----------
+        function likeButton(photo) {
             const g = currentGroup;
             const isLiked = currentUser && Array.isArray(photo.votedBy) && photo.votedBy.includes(currentUser.uid);
             const mine = currentUser && photo.uploaderId === currentUser.uid;
@@ -1373,13 +1390,121 @@
             const limitReached = !isLiked && hasVoteLimit(g) && currentUser && myVoteCount() >= g.voteLimit;
             const selfBlocked = !isLiked && mine && !selfVoteAllowed(g);
             const notStarted = !votingStarted(g);
-            const controls = (mine || isOwner(g)) ? `
+            return `<button onclick="toggleVote('${photo.id}')" ${closed ? 'disabled' : ''}
+                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ml-auto ${isLiked ? 'bg-pink-50 text-pink-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${closed ? 'opacity-60 cursor-not-allowed' : notStarted ? 'opacity-40 cursor-not-allowed' : selfBlocked ? 'opacity-40 cursor-not-allowed' : limitReached ? 'opacity-50' : ''}" title="${closed ? '投票は締め切られました' : notStarted ? '投票はまだ開始されていません' : selfBlocked ? '自分の写真にはいいねできません' : limitReached ? '投票数の上限に達しています' : 'いいね'}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ${isLiked ? 'fill-current' : 'fill-none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                                </svg>
+                                ${showCount ? `<span class="font-bold">${photo.votes || 0}</span>` : '<span class="text-xs text-slate-400">非公開</span>'}
+                            </button>`;
+        }
+
+        function photoControls(photo) {
+            const g = currentGroup;
+            const mine = currentUser && photo.uploaderId === currentUser.uid;
+            return (mine || isOwner(g)) ? `
                 <div class="flex items-center gap-1">
                     ${mine ? `<button onclick="openEditModal('${photo.id}')" class="p-1.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" title="タイトルを編集">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>` : ''}
                     <button onclick="confirmDeletePhoto('${photo.id}')" class="p-1.5 rounded-full text-slate-400 hover:text-red-600 hover:bg-red-50" title="削除">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                 </div>` : '';
+        }
+
+        // ---------- サムネイル表示 ----------
+        function thumbCard(photo) {
+            const isLiked = currentUser && Array.isArray(photo.votedBy) && photo.votedBy.includes(currentUser.uid);
+            const showCount = votesVisible(currentGroup);
+            return `
+                <button onclick="openPhotoViewer('${photo.id}')" class="group text-left bg-white rounded-lg overflow-hidden border border-slate-200 hover:shadow-md transition-shadow">
+                    <div class="relative aspect-square bg-slate-100 overflow-hidden">
+                        <img src="${safeImg(photo.image, BROKEN_IMAGE)}" alt="${escapeHTML(photo.title || '')}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy">
+                        ${showCount ? `<span class="absolute top-1.5 right-1.5 text-[11px] font-bold px-1.5 py-0.5 rounded-full ${isLiked ? 'bg-pink-500 text-white' : 'bg-black/50 text-white'}">♥ ${photo.votes || 0}</span>` : (isLiked ? '<span class="absolute top-1.5 right-1.5 text-[11px] px-1.5 py-0.5 rounded-full bg-pink-500 text-white">♥</span>' : '')}
+                    </div>
+                    <p class="px-2 py-1.5 text-xs text-slate-700 font-medium truncate">${escapeHTML(photo.title || '')}</p>
+                </button>`;
+        }
+
+        // ---------- 拡大表示 (サムネイルをタップしたとき) ----------
+        window.openPhotoViewer = function(photoId) {
+            viewerPhotoId = photoId;
+            renderPhotoViewer();
+            openModal('viewerModal');
+        };
+        window.closePhotoViewer = function() {
+            viewerPhotoId = null;
+            closeModal('viewerModal');
+        };
+        window.stepPhotoViewer = function(delta) {
+            const list = sortedPhotos();
+            const i = list.findIndex(p => p.id === viewerPhotoId);
+            if (i < 0 || !list.length) return;
+            viewerPhotoId = list[(i + delta + list.length) % list.length].id;
+            renderPhotoViewer();
+        };
+        function renderPhotoViewer() {
+            if (!viewerPhotoId) return;
+            const list = sortedPhotos();
+            const i = list.findIndex(p => p.id === viewerPhotoId);
+            if (i < 0) { closePhotoViewer(); return; }   // 削除された
+            const photo = list[i];
+            const nav = list.length > 1 ? `
+                <button onclick="stepPhotoViewer(-1)" class="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 text-white text-xl hover:bg-black/60" title="前の写真">‹</button>
+                <button onclick="stepPhotoViewer(1)" class="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 text-white text-xl hover:bg-black/60" title="次の写真">›</button>` : '';
+            document.getElementById('viewerBody').innerHTML = `
+                <div class="relative bg-slate-900 flex items-center justify-center">
+                    <img src="${safeImg(photo.image, BROKEN_IMAGE)}" alt="${escapeHTML(photo.title || '')}" class="max-h-[65vh] w-auto max-w-full object-contain">
+                    ${nav}
+                    <span class="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] text-white/80 bg-black/40 rounded-full px-2 py-0.5">${i + 1} / ${list.length}</span>
+                </div>
+                <div class="p-4 flex flex-col gap-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <p class="text-base text-slate-800 font-semibold break-words min-w-0">${escapeHTML(photo.title || '')}</p>
+                        ${likeButton(photo)}
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <img src="${safeImg(photo.uploaderPhoto)}" class="w-6 h-6 rounded-full border border-slate-200 bg-slate-100">
+                        <span class="text-xs text-slate-500 truncate flex-1">${escapeHTML(photo.uploaderName || 'ゲスト')}</span>
+                        ${photoControls(photo)}
+                    </div>
+                </div>`;
+        }
+        // キーボード操作 (PC): ← → で前後、Esc で閉じる
+        document.addEventListener('keydown', (e) => {
+            if (!viewerPhotoId) return;
+            if (e.key === 'ArrowLeft') stepPhotoViewer(-1);
+            else if (e.key === 'ArrowRight') stepPhotoViewer(1);
+            else if (e.key === 'Escape') closePhotoViewer();
+        });
+        // スマホ: 左右スワイプで前後
+        {
+            let sx = null;
+            document.addEventListener('touchstart', (e) => { if (viewerPhotoId) sx = e.touches[0].clientX; }, { passive: true });
+            document.addEventListener('touchend', (e) => {
+                if (!viewerPhotoId || sx === null) return;
+                const dx = e.changedTouches[0].clientX - sx; sx = null;
+                if (Math.abs(dx) > 50) stepPhotoViewer(dx < 0 ? 1 : -1);
+            }, { passive: true });
+        }
+
+        // ---------- 表示の切り替え (一覧 / サムネイル)。端末ごとに記憶する ----------
+        let galleryView = (() => { try { return localStorage.getItem('galleryView') === 'thumb' ? 'thumb' : 'list'; } catch (e) { return 'list'; } })();
+        window.setGalleryView = function(v) {
+            galleryView = v === 'thumb' ? 'thumb' : 'list';
+            try { localStorage.setItem('galleryView', galleryView); } catch (e) {}
+            renderGroup();
+        };
+        function viewToggle() {
+            const btn = (v, label, icon) => `<button onclick="setGalleryView('${v}')" class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${galleryView === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}" aria-pressed="${galleryView === v}">${icon}${label}</button>`;
+            return `<div class="flex justify-end mb-3">
+                <div class="inline-flex bg-slate-200/70 rounded-full p-1 gap-1">
+                    ${btn('list', '一覧', '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/></svg>')}
+                    ${btn('thumb', 'サムネイル', '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>')}
+                </div>
+            </div>`;
+        }
+
+        function photoCard(photo) {
             return `
                 <div class="masonry-item bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 hover:-translate-y-1 transition-transform duration-300">
                     <div class="relative group">
@@ -1392,17 +1517,11 @@
                         <div class="flex items-center gap-2">
                             <img src="${safeImg(photo.uploaderPhoto)}" class="w-6 h-6 rounded-full border border-slate-200 bg-slate-100">
                             <span class="text-xs text-slate-500 truncate flex-1">${escapeHTML(photo.uploaderName || 'ゲスト')}</span>
-                            ${controls}
+                            ${photoControls(photo)}
                         </div>
                         <div class="flex justify-between items-center">
                             <p class="text-sm text-slate-800 font-medium truncate flex-1 mr-2">${escapeHTML(photo.title || '')}</p>
-                            <button onclick="toggleVote('${photo.id}')" ${closed ? 'disabled' : ''}
-                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ml-auto ${isLiked ? 'bg-pink-50 text-pink-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${closed ? 'opacity-60 cursor-not-allowed' : notStarted ? 'opacity-40 cursor-not-allowed' : selfBlocked ? 'opacity-40 cursor-not-allowed' : limitReached ? 'opacity-50' : ''}" title="${closed ? '投票は締め切られました' : notStarted ? '投票はまだ開始されていません' : selfBlocked ? '自分の写真にはいいねできません' : limitReached ? '投票数の上限に達しています' : 'いいね'}">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ${isLiked ? 'fill-current' : 'fill-none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                                </svg>
-                                ${showCount ? `<span class="font-bold">${photo.votes || 0}</span>` : '<span class="text-xs text-slate-400">非公開</span>'}
-                            </button>
+                            ${likeButton(photo)}
                         </div>
                     </div>
                 </div>`;
